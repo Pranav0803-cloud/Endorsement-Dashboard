@@ -1,0 +1,1247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Even — Endorsements Dashboard</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<style>body{font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;}</style>
+</head>
+<body class="bg-slate-50">
+<div id="root"></div>
+
+<script>
+const {
+  useState,
+  useEffect,
+  useMemo,
+  useRef
+} = React;
+
+/* =====================================================================
+   1. CONFIG — paste your Apps Script Web App URL here after deploying
+   ===================================================================== */
+const API_URL = "https://script.google.com/a/macros/even.in/s/AKfycbwgWFc0xezdj1CIncbpRQ8o-_sBERSINhJOLwyn5Ys4zEWh9-KbgF8f5grM4Z5-BisBVQ/exec";
+const BRAND = "#0055ff";
+
+/* =====================================================================
+   2. HELPERS
+   ===================================================================== */
+function num(v) {
+  if (v === "" || v === null || v === undefined) return null;
+  const n = Number(v);
+  return isNaN(n) ? null : n;
+}
+function sum(a, b) {
+  return (num(a) || 0) + (num(b) || 0);
+}
+const inr = n => n == null || isNaN(n) ? "—" : new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  maximumFractionDigits: 0
+}).format(n);
+const compact = n => n == null ? "—" : new Intl.NumberFormat("en-IN", {
+  notation: "compact",
+  maximumFractionDigits: 1
+}).format(n);
+function matchedToLedger(m) {
+  return {
+    id: "m" + m._row,
+    row: m._row,
+    sheet: "matched",
+    corpId: m["corporate_id"],
+    company: m["PI - Bill To (Company)"] || m["TI - Bill To (Company)"] || "(no name)",
+    piAmount: num(m["PI - Total (₹)"]),
+    piDate: m["PI - Invoice Date"],
+    piTerms: m["PI - Terms"],
+    piDue: m["PI - Due Date"],
+    sac: m["PI - SAC Code"],
+    piFile: m["PI - File Name"] || null,
+    piLink: m["PI - Source Link"] || null,
+    tiInvNo: m["TI - Invoice No."] || null,
+    tiDate: m["TI - Invoice Date"] || null,
+    tiTaxable: num(m["TI - Taxable Value (₹)"]),
+    tiGst: sum(sum(m["TI - CGST Amt (₹)"], m["TI - SGST Amt (₹)"]), m["TI - IGST Amt (₹)"]),
+    tiTotal: num(m["TI - Total incl. GST (₹)"]),
+    tiMonth: m["TI - Month"] || null,
+    tiLink: m["TI - Source Link"] || null
+  };
+}
+function unmatchedToLedger(u) {
+  const isPI = u["Invoice Type"] === "Proforma Invoice";
+  const base = {
+    id: "u" + u._row,
+    row: u._row,
+    sheet: "unmatched",
+    invoiceType: u["Invoice Type"],
+    corpId: u["corporate_id"],
+    company: u["Bill To (Company)"] || "(no name)"
+  };
+  if (isPI) {
+    return {
+      ...base,
+      piAmount: num(u["Total (₹)"]),
+      piDate: u["Invoice Date"],
+      piTerms: u["Terms"],
+      piDue: u["Due Date"],
+      sac: u["SAC Code"],
+      piFile: u["File Name"] || null,
+      piLink: u["Source Link"] || null,
+      tiInvNo: null,
+      tiDate: null,
+      tiTaxable: null,
+      tiGst: null,
+      tiTotal: null,
+      tiMonth: null,
+      tiLink: null
+    };
+  }
+  return {
+    ...base,
+    piAmount: null,
+    piDate: null,
+    piTerms: null,
+    piDue: null,
+    sac: u["SAC Code"],
+    piFile: null,
+    piLink: null,
+    tiInvNo: u["Invoice No."] || null,
+    tiDate: u["Invoice Date"],
+    tiTaxable: num(u["Taxable Value (₹)"]),
+    tiGst: sum(sum(u["CGST Amt (₹)"], u["SGST Amt (₹)"]), u["IGST Amt (₹)"]),
+    tiTotal: num(u["Total incl. GST (₹)"]) ?? num(u["Total (₹)"]),
+    tiMonth: u["Month"] || null,
+    tiLink: u["Source Link"] || null
+  };
+}
+const TODAY = new Date();
+function enrich(r) {
+  const hasTI = !!r.tiInvNo,
+    hasPI = !!r.piFile;
+  let conversionStatus = "Pending Proforma";
+  if (hasTI) conversionStatus = "Completed";else if (hasPI) conversionStatus = "Proforma Issued";
+  let dueDateVal = null;
+  if (r.piDue) {
+    const d = new Date(String(r.piDue).replace(/\//g, "-"));
+    dueDateVal = isNaN(d) ? null : d;
+  }
+  let paymentStatus = "Pending Payment";
+  if (hasTI) paymentStatus = "Billed / Settled";else if (dueDateVal && dueDateVal < TODAY) paymentStatus = "Overdue";
+  const variance = hasTI && r.tiTotal != null && r.piAmount != null ? +(r.piAmount - r.tiTotal).toFixed(2) : null;
+  let complianceFlag = "OK";
+  if (!r.piLink) complianceFlag = "Doc Missing";else if (variance != null && Math.abs(variance) > 1) complianceFlag = "GSTIN Mismatch";
+  return {
+    ...r,
+    conversionStatus,
+    paymentStatus,
+    variance,
+    complianceFlag
+  };
+}
+function jsonp(url) {
+  return new Promise((resolve, reject) => {
+    const cbName = "jsonp_cb_" + Math.random().toString(36).slice(2);
+    const script = document.createElement("script");
+    let done = false;
+    const timer = setTimeout(() => {
+      if (!done) {
+        cleanup();
+        reject(new Error("Request timed out — double check the Apps Script URL and that it's deployed."));
+      }
+    }, 20000);
+    function cleanup() {
+      delete window[cbName];
+      script.remove();
+      clearTimeout(timer);
+    }
+    window[cbName] = (data) => {
+      done = true;
+      cleanup();
+      resolve(data);
+    };
+    script.onerror = () => {
+      if (!done) {
+        cleanup();
+        reject(new Error("Failed to load — double check the Apps Script URL."));
+      }
+    };
+    script.src = url + (url.indexOf("?") === -1 ? "?" : "&") + "callback=" + cbName;
+    document.body.appendChild(script);
+  });
+}
+
+function b64EncodeUtf8(obj) {
+  const json = JSON.stringify(obj);
+  return btoa(unescape(encodeURIComponent(json)));
+}
+
+async function apiPost(action, payload) {
+  const url = `${API_URL}?action=${encodeURIComponent(action)}&payload=${encodeURIComponent(b64EncodeUtf8(payload))}`;
+  const data = await jsonp(url);
+  if (!data.ok) throw new Error(data.error || "Request failed");
+  return data;
+}
+
+/* =====================================================================
+   3. SHARED UI PIECES
+   ===================================================================== */
+const STATUS_STYLES = {
+  Completed: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  "Proforma Issued": "bg-blue-50 text-blue-700 border-blue-200",
+  "Pending Proforma": "bg-slate-100 text-slate-600 border-slate-200",
+  "Billed / Settled": "bg-emerald-50 text-emerald-700 border-emerald-200",
+  "Pending Payment": "bg-amber-50 text-amber-700 border-amber-200",
+  Overdue: "bg-rose-50 text-rose-700 border-rose-200",
+  OK: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  "Doc Missing": "bg-rose-50 text-rose-700 border-rose-200",
+  "GSTIN Mismatch": "bg-amber-50 text-amber-700 border-amber-200"
+};
+function Pill({
+  label
+}) {
+  return /*#__PURE__*/React.createElement("span", {
+    className: `inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium ${STATUS_STYLES[label] || "bg-slate-100 text-slate-600 border-slate-200"}`
+  }, label);
+}
+function KpiCard({
+  label,
+  value,
+  sub
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-[11px] uppercase tracking-wide text-slate-400"
+  }, label), /*#__PURE__*/React.createElement("div", {
+    className: "text-xl font-semibold text-slate-900 mt-1"
+  }, value), sub && /*#__PURE__*/React.createElement("div", {
+    className: "text-[11px] text-slate-400 mt-1"
+  }, sub));
+}
+const inputCls = "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
+const labelCls = "text-xs font-medium text-slate-500 mb-1 block";
+const PAGE_SIZE_OPTIONS = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500];
+function usePagedRows(rows, initialSize = 50) {
+  const [pageSize, setPageSizeRaw] = useState(initialSize);
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const clampedPage = Math.min(page, totalPages);
+  const pageRows = rows.slice((clampedPage - 1) * pageSize, clampedPage * pageSize);
+  const setPageSize = n => {
+    setPageSizeRaw(n);
+    setPage(1);
+  };
+  return {
+    page: clampedPage,
+    setPage,
+    pageSize,
+    setPageSize,
+    totalPages,
+    pageRows
+  };
+}
+function PaginationBar({
+  page,
+  setPage,
+  totalPages,
+  pageSize,
+  setPageSize,
+  totalRows,
+  shownCount
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400 mt-2"
+  }, /*#__PURE__*/React.createElement("span", null, "Showing ", shownCount, " of ", totalRows), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2"
+  }, /*#__PURE__*/React.createElement("select", {
+    value: pageSize,
+    onChange: e => setPageSize(Number(e.target.value)),
+    className: "rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs"
+  }, PAGE_SIZE_OPTIONS.map(n => /*#__PURE__*/React.createElement("option", {
+    key: n,
+    value: n
+  }, n, " rows"))), /*#__PURE__*/React.createElement("button", {
+    disabled: page <= 1,
+    onClick: () => setPage(p => Math.max(1, p - 1)),
+    className: "rounded-md border border-slate-200 px-2 py-1 disabled:opacity-30"
+  }, "Prev"), /*#__PURE__*/React.createElement("span", null, "Page ", page, "/", totalPages), /*#__PURE__*/React.createElement("button", {
+    disabled: page >= totalPages,
+    onClick: () => setPage(p => Math.min(totalPages, p + 1)),
+    className: "rounded-md border border-slate-200 px-2 py-1 disabled:opacity-30"
+  }, "Next")));
+}
+
+/* =====================================================================
+   4. MISSING-SIDE PANEL — add TI or PI, writes to the sheet via API
+   ===================================================================== */
+function MissingSidePanel({
+  entry,
+  onClose,
+  onSaved
+}) {
+  const mode = !entry.tiInvNo ? "ti" : "pi";
+  const [form, setForm] = useState(mode === "ti" ? {
+    invoiceNo: "",
+    date: "",
+    taxable: "",
+    gst: "",
+    total: entry.piAmount ?? "",
+    month: "",
+    link: ""
+  } : {
+    file: "",
+    date: "",
+    amount: entry.tiTotal ?? "",
+    terms: "",
+    due: "",
+    sac: "",
+    link: ""
+  });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(null);
+  const set = k => e => setForm({
+    ...form,
+    [k]: e.target.value
+  });
+  async function submit() {
+    setSaving(true);
+    setErr(null);
+    try {
+      if (entry.sheet === "matched") {
+        // already-matched row missing one side — direct cell update
+        const values = mode === "ti" ? {
+          "TI - Invoice No.": form.invoiceNo,
+          "TI - Invoice Date": form.date,
+          "TI - Taxable Value (₹)": form.taxable,
+          "TI - CGST Amt (₹)": form.gst,
+          "TI - Total incl. GST (₹)": form.total,
+          "TI - Month": form.month,
+          "TI - Source Link": form.link
+        } : {
+          "PI - Invoice Date": form.date,
+          "PI - Terms": form.terms,
+          "PI - Due Date": form.due,
+          "PI - Total (₹)": form.amount,
+          "PI - SAC Code": form.sac,
+          "PI - File Name": form.file,
+          "PI - Source Link": form.link
+        };
+        await apiPost("updateRow", {
+          sheet: "MATCHED INVOICES",
+          row: entry.row,
+          values
+        });
+      } else {
+        // unmatched row — moves it into MATCHED INVOICES
+        await apiPost("resolveUnmatched", {
+          row: entry.row,
+          mode,
+          addedFields: form
+        });
+      }
+      onSaved();
+      onClose();
+    } catch (e2) {
+      setErr(String(e2.message || e2));
+    } finally {
+      setSaving(false);
+    }
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4",
+    onClick: onClose
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-xl",
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mb-4 flex items-center justify-between"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h3", {
+    className: "text-sm font-semibold text-slate-900"
+  }, mode === "ti" ? "Add Tax Invoice details" : "Add Proforma Invoice details"), /*#__PURE__*/React.createElement("p", {
+    className: "text-xs text-slate-400"
+  }, entry.company)), /*#__PURE__*/React.createElement("button", {
+    onClick: onClose,
+    className: "text-slate-400 hover:text-slate-600"
+  }, "✕")), mode === "ti" ? /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-2 gap-3"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "TI Invoice No."), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: form.invoiceNo,
+    onChange: set("invoiceNo")
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "TI Date"), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: form.date,
+    onChange: set("date"),
+    placeholder: "30/06/2026"
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "Taxable Value (₹)"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    className: inputCls,
+    value: form.taxable,
+    onChange: set("taxable")
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "GST Amount (₹)"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    className: inputCls,
+    value: form.gst,
+    onChange: set("gst")
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "Gross Total (₹)"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    className: inputCls,
+    value: form.total,
+    onChange: set("total")
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "TI Month"), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: form.month,
+    onChange: set("month"),
+    placeholder: "03. Jun'26"
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "col-span-2"
+  }, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "TI Source Link"), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: form.link,
+    onChange: set("link")
+  }))) : /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-2 gap-3"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "PI File / Number"), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: form.file,
+    onChange: set("file")
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "PI Date"), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: form.date,
+    onChange: set("date"),
+    placeholder: "01/08/2026"
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "PI Amount (₹)"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    className: inputCls,
+    value: form.amount,
+    onChange: set("amount")
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "PI Terms"), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: form.terms,
+    onChange: set("terms")
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "PI Due Date"), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: form.due,
+    onChange: set("due")
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "SAC Code"), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: form.sac,
+    onChange: set("sac")
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "col-span-2"
+  }, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "PI Source Link"), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: form.link,
+    onChange: set("link")
+  }))), err && /*#__PURE__*/React.createElement("p", {
+    className: "mt-3 text-xs text-rose-600"
+  }, err), /*#__PURE__*/React.createElement("div", {
+    className: "mt-5 flex justify-end gap-2"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: onClose,
+    className: "rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600"
+  }, "Cancel"), /*#__PURE__*/React.createElement("button", {
+    onClick: submit,
+    disabled: saving,
+    className: "rounded-lg px-3 py-2 text-sm font-semibold text-white disabled:opacity-50",
+    style: {
+      backgroundColor: BRAND
+    }
+  }, saving ? "Saving…" : "Save to sheet"))));
+}
+
+/* =====================================================================
+   5. MASTER LEDGER
+   ===================================================================== */
+function MasterLedger({
+  entries,
+  refresh
+}) {
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [panelFor, setPanelFor] = useState(null);
+  const enriched = useMemo(() => entries.map(enrich), [entries]);
+  const filtered = useMemo(() => enriched.filter(r => {
+    const hay = `${r.company} ${r.corpId || ""} ${r.tiInvNo || ""} ${r.piFile || ""}`.toLowerCase();
+    return hay.includes(query.toLowerCase()) && (statusFilter === "All" || r.conversionStatus === statusFilter);
+  }), [enriched, query, statusFilter]);
+  const {
+    page,
+    setPage,
+    pageSize,
+    setPageSize,
+    totalPages,
+    pageRows
+  } = usePagedRows(filtered, 50);
+  const active = panelFor ? enriched.find(e => e.id === panelFor) : null;
+  function exportCSV() {
+    const headers = ["Company", "PI Date", "PI Amount", "PI Due", "TI Invoice No", "TI Date", "Gross Invoiced", "Variance", "Conversion", "Payment", "Compliance"];
+    const lines = filtered.map(r => [r.company, r.piDate || "", r.piAmount ?? "", r.piDue || "", r.tiInvNo || "", r.tiDate || "", r.tiTotal ?? "", r.variance ?? "", r.conversionStatus, r.paymentStatus, r.complianceFlag].map(v => `"${String(v).replace(/"/g, '""')}"`).join(","));
+    const csv = [headers.join(","), ...lines].join("\n");
+    const blob = new Blob([csv], {
+      type: "text/csv"
+    });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "endorsement_ledger.csv";
+    a.click();
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col gap-4"
+  }, active && /*#__PURE__*/React.createElement(MissingSidePanel, {
+    entry: active,
+    onClose: () => setPanelFor(null),
+    onSaved: refresh
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+  }, /*#__PURE__*/React.createElement("input", {
+    value: query,
+    onChange: e => {
+      setQuery(e.target.value);
+      setPage(1);
+    },
+    placeholder: "Search company, corporate ID…",
+    className: `${inputCls} sm:max-w-xs`
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2"
+  }, /*#__PURE__*/React.createElement("select", {
+    value: statusFilter,
+    onChange: e => {
+      setStatusFilter(e.target.value);
+      setPage(1);
+    },
+    className: "rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm"
+  }, ["All", "Completed", "Proforma Issued", "Pending Proforma"].map(s => /*#__PURE__*/React.createElement("option", {
+    key: s
+  }, s))), /*#__PURE__*/React.createElement("button", {
+    onClick: exportCSV,
+    className: "rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium"
+  }, "Export CSV"))), /*#__PURE__*/React.createElement("div", {
+    className: "overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "min-w-[1100px] w-full text-sm"
+  }, /*#__PURE__*/React.createElement("thead", {
+    className: "bg-slate-50"
+  }, /*#__PURE__*/React.createElement("tr", {
+    className: "border-b border-slate-200 text-left text-[11px] uppercase text-slate-400"
+  }, /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Company"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "PI Date"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "PI Amount"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "TI Invoice No."), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "TI Date"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Gross Invoiced"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Variance"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Conversion"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Payment"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Compliance"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Actions"))), /*#__PURE__*/React.createElement("tbody", null, pageRows.map(r => /*#__PURE__*/React.createElement("tr", {
+    key: r.id,
+    className: "border-b border-slate-100 odd:bg-slate-50/50"
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 max-w-[200px] truncate"
+  }, r.company), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 text-slate-500"
+  }, r.piDate || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, inr(r.piAmount)), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, r.tiInvNo || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 text-slate-500"
+  }, r.tiDate || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, inr(r.tiTotal)), /*#__PURE__*/React.createElement("td", {
+    className: `px-3 py-2 ${r.variance ? "text-rose-600" : "text-slate-400"}`
+  }, r.variance == null ? "—" : inr(r.variance)), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, /*#__PURE__*/React.createElement(Pill, {
+    label: r.conversionStatus
+  })), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, /*#__PURE__*/React.createElement(Pill, {
+    label: r.paymentStatus
+  })), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, /*#__PURE__*/React.createElement(Pill, {
+    label: r.complianceFlag
+  })), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 whitespace-nowrap"
+  }, !r.tiInvNo && /*#__PURE__*/React.createElement("button", {
+    onClick: () => setPanelFor(r.id),
+    className: "text-xs font-medium rounded-md border px-2 py-1 mr-1",
+    style: {
+      borderColor: BRAND,
+      color: BRAND
+    }
+  }, "+ Add TI"), !r.piFile && /*#__PURE__*/React.createElement("button", {
+    onClick: () => setPanelFor(r.id),
+    className: "text-xs font-medium rounded-md border px-2 py-1",
+    style: {
+      borderColor: BRAND,
+      color: BRAND
+    }
+  }, "+ Add PI")))), pageRows.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    colSpan: 11,
+    className: "px-3 py-8 text-center text-slate-400"
+  }, "No records match."))))), /*#__PURE__*/React.createElement(PaginationBar, {
+    page: page,
+    setPage: setPage,
+    totalPages: totalPages,
+    pageSize: pageSize,
+    setPageSize: setPageSize,
+    totalRows: filtered.length,
+    shownCount: pageRows.length
+  }));
+}
+
+/* =====================================================================
+   6. EXECUTIVE & REVENUE
+   ===================================================================== */
+function ExecutiveOverview({
+  entries
+}) {
+  const enriched = useMemo(() => entries.map(enrich), [entries]);
+  const totalPipeline = enriched.reduce((s, r) => s + (r.piAmount || 0), 0);
+  const totalRealized = enriched.reduce((s, r) => s + (r.tiTotal || 0), 0);
+  const totalGst = enriched.reduce((s, r) => s + (r.tiGst || 0), 0);
+  const billed = enriched.filter(r => r.tiInvNo).length;
+  const avgTicket = billed ? totalRealized / billed : 0;
+  const chartRef = useRef(null);
+  const chartInstance = useRef(null);
+  const byMonth = useMemo(() => {
+    const map = {};
+    enriched.forEach(r => {
+      if (!r.tiMonth) return;
+      map[r.tiMonth] = (map[r.tiMonth] || 0) + (r.tiTotal || 0);
+    });
+    return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [enriched]);
+  useEffect(() => {
+    if (!chartRef.current) return;
+    if (chartInstance.current) chartInstance.current.destroy();
+    chartInstance.current = new Chart(chartRef.current, {
+      type: "bar",
+      data: {
+        labels: byMonth.map(d => d[0]),
+        datasets: [{
+          label: "Monthly revenue",
+          data: byMonth.map(d => d[1]),
+          backgroundColor: BRAND
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: {
+            display: false
+          }
+        }
+      }
+    });
+  }, [byMonth]);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col gap-6"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-2 gap-3 md:grid-cols-4"
+  }, /*#__PURE__*/React.createElement(KpiCard, {
+    label: "Total Pipeline Value",
+    value: compact(totalPipeline),
+    sub: inr(totalPipeline)
+  }), /*#__PURE__*/React.createElement(KpiCard, {
+    label: "Total Realized Revenue",
+    value: compact(totalRealized),
+    sub: inr(totalRealized)
+  }), /*#__PURE__*/React.createElement(KpiCard, {
+    label: "Total GST Liability",
+    value: compact(totalGst),
+    sub: inr(totalGst)
+  }), /*#__PURE__*/React.createElement(KpiCard, {
+    label: "Average Ticket Size",
+    value: compact(avgTicket),
+    sub: inr(avgTicket)
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "mb-3 text-sm font-semibold text-slate-800"
+  }, "Billing Cycle & Revenue"), /*#__PURE__*/React.createElement("canvas", {
+    ref: chartRef,
+    height: "90"
+  })));
+}
+
+/* =====================================================================
+   7. OPERATIONS & PIPELINE
+   ===================================================================== */
+function SimpleTable({
+  title,
+  rows,
+  cols
+}) {
+  const {
+    page,
+    setPage,
+    pageSize,
+    setPageSize,
+    totalPages,
+    pageRows
+  } = usePagedRows(rows, 50);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "mb-3 text-sm font-semibold text-slate-800"
+  }, title, " (", rows.length, ")"), /*#__PURE__*/React.createElement("table", {
+    className: "w-full text-sm"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
+    className: "text-left text-[11px] uppercase text-slate-400"
+  }, cols.map(c => /*#__PURE__*/React.createElement("th", {
+    key: c.key,
+    className: "py-1.5 pr-3"
+  }, c.label)))), /*#__PURE__*/React.createElement("tbody", null, pageRows.map((r, i) => /*#__PURE__*/React.createElement("tr", {
+    key: i,
+    className: "border-t border-slate-100"
+  }, cols.map(c => /*#__PURE__*/React.createElement("td", {
+    key: c.key,
+    className: "py-1.5 pr-3"
+  }, c.render ? c.render(r) : r[c.key])))), pageRows.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    colSpan: cols.length,
+    className: "py-4 text-center text-slate-400"
+  }, "Nothing here.")))), rows.length > 0 && /*#__PURE__*/React.createElement(PaginationBar, {
+    page: page,
+    setPage: setPage,
+    totalPages: totalPages,
+    pageSize: pageSize,
+    setPageSize: setPageSize,
+    totalRows: rows.length,
+    shownCount: pageRows.length
+  }));
+}
+function OperationsFunnel({
+  entries
+}) {
+  const enriched = useMemo(() => entries.map(enrich), [entries]);
+  const stuck = enriched.filter(r => !r.tiInvNo);
+  const overdue = enriched.filter(r => r.paymentStatus === "Overdue");
+  const variance = enriched.filter(r => r.variance != null && Math.abs(r.variance) > 0.5);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col gap-6"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "grid gap-6 lg:grid-cols-2"
+  }, /*#__PURE__*/React.createElement(SimpleTable, {
+    title: "Unbilled / Stuck",
+    rows: stuck,
+    cols: [{
+      key: "company",
+      label: "Company"
+    }, {
+      key: "piAmount",
+      label: "PI Amount",
+      render: r => inr(r.piAmount)
+    }, {
+      key: "paymentStatus",
+      label: "Status",
+      render: r => /*#__PURE__*/React.createElement(Pill, {
+        label: r.paymentStatus
+      })
+    }]
+  }), /*#__PURE__*/React.createElement(SimpleTable, {
+    title: "Overdue",
+    rows: overdue,
+    cols: [{
+      key: "company",
+      label: "Company"
+    }, {
+      key: "piDue",
+      label: "Due"
+    }, {
+      key: "piAmount",
+      label: "Amount",
+      render: r => inr(r.piAmount)
+    }]
+  })), /*#__PURE__*/React.createElement(SimpleTable, {
+    title: "Value Variance (PI vs TI)",
+    rows: variance,
+    cols: [{
+      key: "company",
+      label: "Company"
+    }, {
+      key: "piAmount",
+      label: "PI Total",
+      render: r => inr(r.piAmount)
+    }, {
+      key: "tiTotal",
+      label: "TI Total",
+      render: r => inr(r.tiTotal)
+    }, {
+      key: "variance",
+      label: "Variance",
+      render: r => inr(r.variance)
+    }]
+  }));
+}
+
+/* =====================================================================
+   8. UNMATCHED INVOICES
+   ===================================================================== */
+function UnmatchedInvoices({
+  entries,
+  refresh
+}) {
+  const [panelFor, setPanelFor] = useState(null);
+  const enriched = useMemo(() => entries.map(enrich), [entries]);
+  const piOnly = enriched.filter(r => r.piFile && !r.tiInvNo);
+  const tiOnly = enriched.filter(r => !r.piFile && r.tiInvNo);
+  const active = panelFor ? enriched.find(e => e.id === panelFor) : null;
+  function ActionTable({
+    title,
+    rows,
+    ctaLabel
+  }) {
+    const {
+      page,
+      setPage,
+      pageSize,
+      setPageSize,
+      totalPages,
+      pageRows
+    } = usePagedRows(rows, 50);
+    return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h3", {
+      className: "mb-3 text-sm font-semibold text-slate-800"
+    }, title, " (", rows.length, ")"), /*#__PURE__*/React.createElement("div", {
+      className: "overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm"
+    }, /*#__PURE__*/React.createElement("table", {
+      className: "w-full text-sm min-w-[700px]"
+    }, /*#__PURE__*/React.createElement("thead", {
+      className: "bg-slate-50"
+    }, /*#__PURE__*/React.createElement("tr", {
+      className: "text-left text-[11px] uppercase text-slate-400"
+    }, /*#__PURE__*/React.createElement("th", {
+      className: "px-3 py-2"
+    }, "Company"), /*#__PURE__*/React.createElement("th", {
+      className: "px-3 py-2"
+    }, "Date"), /*#__PURE__*/React.createElement("th", {
+      className: "px-3 py-2"
+    }, "Amount"), /*#__PURE__*/React.createElement("th", {
+      className: "px-3 py-2"
+    }, "Action"))), /*#__PURE__*/React.createElement("tbody", null, pageRows.map(r => /*#__PURE__*/React.createElement("tr", {
+      key: r.id,
+      className: "border-t border-slate-100"
+    }, /*#__PURE__*/React.createElement("td", {
+      className: "px-3 py-2 max-w-[220px] truncate"
+    }, r.company), /*#__PURE__*/React.createElement("td", {
+      className: "px-3 py-2 text-slate-500"
+    }, r.tiDate || r.piDate || "—"), /*#__PURE__*/React.createElement("td", {
+      className: "px-3 py-2"
+    }, inr(r.tiTotal ?? r.piAmount)), /*#__PURE__*/React.createElement("td", {
+      className: "px-3 py-2"
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => setPanelFor(r.id),
+      className: "text-xs font-medium rounded-md border px-2 py-1",
+      style: {
+        borderColor: BRAND,
+        color: BRAND
+      }
+    }, ctaLabel)))), pageRows.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+      colSpan: 4,
+      className: "px-3 py-8 text-center text-slate-400"
+    }, "Nothing here."))))), rows.length > 0 && /*#__PURE__*/React.createElement(PaginationBar, {
+      page: page,
+      setPage: setPage,
+      totalPages: totalPages,
+      pageSize: pageSize,
+      setPageSize: setPageSize,
+      totalRows: rows.length,
+      shownCount: pageRows.length
+    }));
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col gap-6"
+  }, active && /*#__PURE__*/React.createElement(MissingSidePanel, {
+    entry: active,
+    onClose: () => setPanelFor(null),
+    onSaved: refresh
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"
+  }, "Add the missing side to move a record into the Master Ledger — it writes straight back to the sheet."), /*#__PURE__*/React.createElement(ActionTable, {
+    title: "Proforma Invoices missing a Tax Invoice",
+    rows: piOnly,
+    ctaLabel: "+ Add TI"
+  }), /*#__PURE__*/React.createElement(ActionTable, {
+    title: "Tax Invoices missing a Proforma Invoice",
+    rows: tiOnly,
+    ctaLabel: "+ Add PI"
+  }));
+}
+
+/* =====================================================================
+   9. ADD BATCH ENTRY
+   ===================================================================== */
+function AddBatchEntry({
+  refresh
+}) {
+  const empty = {
+    company: "",
+    corpId: "",
+    piFile: "",
+    piDate: "",
+    piAmount: "",
+    piTerms: "",
+    piDue: "",
+    sac: "",
+    piLink: "",
+    addTI: false,
+    tiInvNo: "",
+    tiDate: "",
+    tiTaxable: "",
+    tiGst: "",
+    tiTotal: "",
+    tiMonth: "",
+    tiLink: ""
+  };
+  const [form, setForm] = useState(empty);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const set = k => e => setForm({
+    ...form,
+    [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value
+  });
+  async function submit() {
+    if (!form.company || !form.piAmount || !form.piDate) {
+      setMsg({
+        type: "error",
+        text: "Company, PI amount and PI date are required."
+      });
+      return;
+    }
+    setSaving(true);
+    setMsg(null);
+    try {
+      if (form.addTI) {
+        await apiPost("appendRow", {
+          sheet: "MATCHED INVOICES",
+          values: {
+            "corporate_id": form.corpId || form.company.toLowerCase().replace(/\s+/g, "_"),
+            "PI - Bill To (Company)": form.company,
+            "PI - File Name": form.piFile,
+            "PI - Invoice Date": form.piDate,
+            "PI - Total (₹)": form.piAmount,
+            "PI - Terms": form.piTerms,
+            "PI - Due Date": form.piDue,
+            "PI - SAC Code": form.sac,
+            "PI - Source Link": form.piLink,
+            "TI - Invoice No.": form.tiInvNo,
+            "TI - Invoice Date": form.tiDate,
+            "TI - Taxable Value (₹)": form.tiTaxable,
+            "TI - CGST Amt (₹)": form.tiGst,
+            "TI - Total incl. GST (₹)": form.tiTotal,
+            "TI - Month": form.tiMonth,
+            "TI - Source Link": form.tiLink
+          }
+        });
+      } else {
+        await apiPost("appendRow", {
+          sheet: "UNMATCHED INVOICES",
+          values: {
+            "Invoice Type": "Proforma Invoice",
+            "Invoice Date": form.piDate,
+            "Terms": form.piTerms,
+            "Due Date": form.piDue,
+            "corporate_id": form.corpId || form.company.toLowerCase().replace(/\s+/g, "_"),
+            "Bill To (Company)": form.company,
+            "Total (₹)": form.piAmount,
+            "SAC Code": form.sac,
+            "File Name": form.piFile,
+            "Source Link": form.piLink
+          }
+        });
+      }
+      setForm(empty);
+      setMsg({
+        type: "success",
+        text: `Added ${form.company}.`
+      });
+      refresh();
+    } catch (e) {
+      setMsg({
+        type: "error",
+        text: String(e.message || e)
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "max-w-2xl rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "mb-1 text-sm font-semibold text-slate-800"
+  }, "Add a new endorsement entry"), /*#__PURE__*/React.createElement("p", {
+    className: "mb-4 text-xs text-slate-400"
+  }, "Add just the Proforma — the Tax Invoice can be added later from the Ledger or Unmatched Invoices tab."), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-2 gap-3"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "Corporate ID"), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: form.corpId,
+    onChange: set("corpId")
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "Company *"), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: form.company,
+    onChange: set("company")
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "PI File / Number"), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: form.piFile,
+    onChange: set("piFile")
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "PI Date *"), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: form.piDate,
+    onChange: set("piDate"),
+    placeholder: "24/08/2026"
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "PI Amount (₹) *"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    className: inputCls,
+    value: form.piAmount,
+    onChange: set("piAmount")
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "PI Terms"), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: form.piTerms,
+    onChange: set("piTerms")
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "PI Due Date"), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: form.piDue,
+    onChange: set("piDue")
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "SAC Code"), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: form.sac,
+    onChange: set("sac")
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "col-span-2"
+  }, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "PI Source Link"), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: form.piLink,
+    onChange: set("piLink")
+  }))), /*#__PURE__*/React.createElement("label", {
+    className: "mt-4 flex items-center gap-2 text-sm font-medium text-slate-700"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: form.addTI,
+    onChange: set("addTI")
+  }), " Also add Tax Invoice details now"), form.addTI && /*#__PURE__*/React.createElement("div", {
+    className: "mt-3 grid grid-cols-2 gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "TI Invoice No."), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: form.tiInvNo,
+    onChange: set("tiInvNo")
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "TI Date"), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: form.tiDate,
+    onChange: set("tiDate")
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "Taxable Value (₹)"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    className: inputCls,
+    value: form.tiTaxable,
+    onChange: set("tiTaxable")
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "GST Amount (₹)"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    className: inputCls,
+    value: form.tiGst,
+    onChange: set("tiGst")
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "Gross Total (₹)"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    className: inputCls,
+    value: form.tiTotal,
+    onChange: set("tiTotal")
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "TI Month"), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: form.tiMonth,
+    onChange: set("tiMonth")
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "col-span-2"
+  }, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "TI Source Link"), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: form.tiLink,
+    onChange: set("tiLink")
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "mt-5 flex items-center gap-3"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: submit,
+    disabled: saving,
+    className: "rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50",
+    style: {
+      backgroundColor: BRAND
+    }
+  }, saving ? "Saving…" : "Add to sheet"), msg && /*#__PURE__*/React.createElement("span", {
+    className: `text-xs font-medium ${msg.type === "error" ? "text-rose-600" : "text-emerald-600"}`
+  }, msg.text)));
+}
+
+/* =====================================================================
+   10. ROOT
+   ===================================================================== */
+function App() {
+  const [tab, setTab] = useState("ledger");
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await jsonp(API_URL);
+      if (!data.ok) throw new Error(data.error || "Failed to load");
+      const merged = [...data.matched.map(matchedToLedger), ...data.unmatched.map(unmatchedToLedger)];
+      setEntries(merged);
+    } catch (e) {
+      setError(String(e.message || e));
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    load();
+  }, []);
+  const unmatchedCount = entries.filter(e => !e.tiInvNo || !e.piFile).length;
+  const tabs = [{
+    id: "ledger",
+    label: "Master Ledger"
+  }, {
+    id: "exec",
+    label: "Executive & Revenue"
+  }, {
+    id: "ops",
+    label: "Operations & Pipeline"
+  }, {
+    id: "unmatched",
+    label: `Unmatched Invoices (${unmatchedCount})`
+  }, {
+    id: "add",
+    label: "Add Batch Entry"
+  }];
+  if (API_URL.indexOf("PASTE_YOUR") === 0) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "max-w-lg mx-auto mt-24 rounded-2xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800"
+    }, "This dashboard isn't connected yet — open ", /*#__PURE__*/React.createElement("code", null, "index.html"), ", find the line starting with ", /*#__PURE__*/React.createElement("code", null, "const API_URL ="), ", and paste in your Apps Script Web App URL.");
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "min-h-screen w-full bg-slate-50 text-slate-900"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mx-auto max-w-[1400px] px-4 py-6 sm:px-6"
+  }, /*#__PURE__*/React.createElement("header", {
+    className: "mb-6"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-lg font-bold",
+    style: {
+      color: BRAND
+    }
+  }, "Even"), /*#__PURE__*/React.createElement("h1", {
+    className: "text-2xl font-bold sm:text-3xl"
+  }, "Endorsements Operations & Financial Dashboard"), /*#__PURE__*/React.createElement("p", {
+    className: "text-sm text-slate-500"
+  }, loading ? "Loading…" : error ? /*#__PURE__*/React.createElement("span", {
+    className: "text-rose-600"
+  }, error) : `${entries.length} records synced live from the sheet`, " ", /*#__PURE__*/React.createElement("button", {
+    onClick: load,
+    className: "ml-2 underline"
+  }, "refresh"))), /*#__PURE__*/React.createElement("nav", {
+    className: "mb-6 flex flex-wrap gap-1 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm"
+  }, tabs.map(t => /*#__PURE__*/React.createElement("button", {
+    key: t.id,
+    onClick: () => setTab(t.id),
+    className: "rounded-xl px-3 py-2 text-sm font-medium",
+    style: tab === t.id ? {
+      backgroundColor: "#eaf1ff",
+      color: BRAND
+    } : {
+      color: "#64748b"
+    }
+  }, t.label))), loading ? /*#__PURE__*/React.createElement("div", {
+    className: "text-center text-slate-400 py-20"
+  }, "Loading sheet data…") : /*#__PURE__*/React.createElement("main", null, tab === "ledger" && /*#__PURE__*/React.createElement(MasterLedger, {
+    entries: entries,
+    refresh: load
+  }), tab === "exec" && /*#__PURE__*/React.createElement(ExecutiveOverview, {
+    entries: entries
+  }), tab === "ops" && /*#__PURE__*/React.createElement(OperationsFunnel, {
+    entries: entries
+  }), tab === "unmatched" && /*#__PURE__*/React.createElement(UnmatchedInvoices, {
+    entries: entries,
+    refresh: load
+  }), tab === "add" && /*#__PURE__*/React.createElement(AddBatchEntry, {
+    refresh: load
+  }))));
+}
+ReactDOM.createRoot(document.getElementById("root")).render(/*#__PURE__*/React.createElement(App, null));
+</script>
+</body>
+</html>
