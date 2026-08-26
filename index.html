@@ -1312,6 +1312,9 @@ function AddBatchEntry({
 /* =====================================================================
    PLACEMENTS — data helpers, dropdown option lists, and status logic
    ===================================================================== */
+/* =====================================================================
+   PLACEMENTS — data helpers, dropdown option lists, and status logic
+   ===================================================================== */
 const POLICY_TYPE_OPTIONS = ["Unlimited GP", "Even OPD", "HCU", "HCU only", "Retail Gold Plan", "HS Standard Plan"];
 const INSURER_OPTIONS = ["Even", "Digit", "ABHI", "Zuno", "Magma", "Care"];
 const BROKER_OPTIONS = ["Healthysure", "Even", "Prudent", "Pazcare", "Lockton", "Sriyah", "Howden", "AON", "Mahindra", "Mutual Global", "Marsh"];
@@ -1324,6 +1327,34 @@ const ONBOARDING_SESSION_OPTIONS = ["Completed", "Sent", "NA"];
 const WELCOME_EMAILERS_OPTIONS = ["Sent", "Completed", "NA"];
 const MONTH_OPTIONS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const STATUS_OPTIONS = ["Policy issued", "In Progress - Policy placement", "Under issuance", "On Hold - Digit", "Completed - Make policy active pending"];
+
+/* Your sheet's headers have trailing spaces on some columns (e.g. "Status ",
+   "Policy Type "). These helpers normalize keys for reading/display, and
+   translate a clean key back to the sheet's exact header when writing —
+   so both display AND saves work regardless of stray whitespace. */
+function buildPlacementHeaderMap(rawRows) {
+  const map = {};
+  if (rawRows.length) {
+    Object.keys(rawRows[0]).forEach(k => {
+      map[k.trim()] = k;
+    });
+  }
+  return map;
+}
+function cleanPlacementRow(row) {
+  const out = {};
+  Object.keys(row).forEach(k => {
+    out[k.trim()] = row[k];
+  });
+  return out;
+}
+function translatePlacementKeys(values, headerMap) {
+  const out = {};
+  Object.keys(values).forEach(k => {
+    out[headerMap && headerMap[k] || k] = values[k];
+  });
+  return out;
+}
 function placementStatusCategory(p) {
   const status = String(p["Status"] || "").trim();
   const hr = String(p["HR dashboard"] || "").trim();
@@ -1530,10 +1561,10 @@ function PlacementsLedger({
   } = usePagedRows(filtered, 50);
   const uniqueMonths = useMemo(() => [...new Set(placements.map(p => p["Month of activation"]).filter(Boolean))], [placements]);
   const uniqueInsurers = useMemo(() => [...new Set(placements.map(p => p["Insurer"]).filter(Boolean))], [placements]);
+  const CSV_COLUMNS = ["Sl No", "Organisation Name", "Policy Type", "Email Subject Line", "Insurer", "Broker", "Data flow", "HR dashboard", "Limits", "Master policy whitelisted", "Make policy active", "Policy Placement(Insurer)", "Onboarding session", "Welcome emailers", "CD balance on Issuance", "Date of documents shared", "Policy start date", "Month of activation", "Status", "Remarks"];
   function exportCSV() {
-    const headers = ["Sl No", "Organisation Name", "Policy Type", "Insurer", "Broker", "Data flow", "HR dashboard", "Status", "Month of activation", "No. of email f/u", "Call f/u"];
-    const lines = filtered.map(p => headers.map(h => `"${String(p[h] ?? "").replace(/"/g, '""')}"`).join(","));
-    const csv = [headers.join(","), ...lines].join("\n");
+    const lines = filtered.map(p => CSV_COLUMNS.map(h => `"${String(p[h] ?? "").replace(/"/g, '""')}"`).join(","));
+    const csv = [CSV_COLUMNS.join(","), ...lines].join("\n");
     const blob = new Blob([csv], {
       type: "text/csv"
     });
@@ -1543,6 +1574,10 @@ function PlacementsLedger({
     a.click();
   }
   const nextSlNo = placements.reduce((m, p) => Math.max(m, Number(p["Sl No"]) || 0), 0) + 1;
+  const th = label => /*#__PURE__*/React.createElement("th", {
+    key: label,
+    className: "px-3 py-2 whitespace-nowrap"
+  }, label);
   return /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col gap-4"
   }, showAdd && /*#__PURE__*/React.createElement(AddPlacementModal, {
@@ -1600,121 +1635,86 @@ function PlacementsLedger({
   }, "Export CSV"))), /*#__PURE__*/React.createElement("div", {
     className: "overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm"
   }, /*#__PURE__*/React.createElement("table", {
-    className: "min-w-[1400px] w-full text-sm"
+    className: "min-w-[2600px] w-full text-sm"
   }, /*#__PURE__*/React.createElement("thead", {
     className: "bg-slate-50"
   }, /*#__PURE__*/React.createElement("tr", {
     className: "border-b border-slate-200 text-left text-[11px] uppercase text-slate-400"
-  }, /*#__PURE__*/React.createElement("th", {
+  }, ["Sl No", "Organisation Name", "Policy Type", "Email Subject Line", "Insurer", "Broker", "Data flow", "HR dashboard", "Limits", "Master policy whitelisted", "Make policy active", "Policy Placement (Insurer)", "Onboarding session", "Welcome emailers", "CD balance on Issuance", "Date of documents shared", "Policy start date", "Month of activation", "Status", "Remarks"].map(th))), /*#__PURE__*/React.createElement("tbody", null, pageRows.map(p => /*#__PURE__*/React.createElement("tr", {
+    key: p._row,
+    className: "border-b border-slate-100 odd:bg-slate-50/50"
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 text-slate-500"
+  }, p["Sl No"]), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 max-w-[200px] truncate font-medium text-slate-800"
+  }, p["Organisation Name"]), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 text-slate-600 whitespace-nowrap"
+  }, p["Policy Type"] || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 max-w-[220px] truncate text-slate-500"
+  }, p["Email Subject Line"] || "—"), /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2"
-  }, "Sl No"), /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement(EditableSelect, {
+    value: p["Insurer"],
+    options: INSURER_OPTIONS,
+    onSave: v => onUpdateCell(p._row, {
+      "Insurer": v
+    })
+  })), /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2"
-  }, "Organisation"), /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement(EditableSelect, {
+    value: p["Broker"],
+    options: BROKER_OPTIONS,
+    onSave: v => onUpdateCell(p._row, {
+      "Broker": v
+    })
+  })), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 text-slate-600 whitespace-nowrap"
+  }, p["Data flow"] || "—"), /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2"
-  }, "Policy Type"), /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement(EditableSelect, {
+    value: p["HR dashboard"],
+    options: HR_DASHBOARD_OPTIONS,
+    onSave: v => onUpdateCell(p._row, {
+      "HR dashboard": v
+    })
+  })), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 text-slate-600 whitespace-nowrap"
+  }, p["Limits"] || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 text-slate-600 whitespace-nowrap"
+  }, p["Master policy whitelisted"] || "—"), /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2"
-  }, "Insurer"), /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement(EditableSelect, {
+    value: p["Make policy active"],
+    options: MAKE_POLICY_ACTIVE_OPTIONS,
+    onSave: v => onUpdateCell(p._row, {
+      "Make policy active": v
+    })
+  })), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 text-slate-600 whitespace-nowrap"
+  }, p["Policy Placement(Insurer)"] || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 text-slate-600 whitespace-nowrap"
+  }, p["Onboarding session"] || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 text-slate-600 whitespace-nowrap"
+  }, p["Welcome emailers"] || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 text-slate-600 whitespace-nowrap"
+  }, p["CD balance on Issuance"] || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 text-slate-500 whitespace-nowrap"
+  }, p["Date of documents shared"] || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 text-slate-500 whitespace-nowrap"
+  }, p["Policy start date"] || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 text-slate-500 whitespace-nowrap"
+  }, p["Month of activation"] || "—"), /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2"
-  }, "Broker"), /*#__PURE__*/React.createElement("th", {
-    className: "px-3 py-2"
-  }, "HR Dashboard"), /*#__PURE__*/React.createElement("th", {
-    className: "px-3 py-2"
-  }, "Make Policy Active"), /*#__PURE__*/React.createElement("th", {
-    className: "px-3 py-2"
-  }, "Status"), /*#__PURE__*/React.createElement("th", {
-    className: "px-3 py-2"
-  }, "Category"), /*#__PURE__*/React.createElement("th", {
-    className: "px-3 py-2"
-  }, "Month"), /*#__PURE__*/React.createElement("th", {
-    className: "px-3 py-2"
-  }, "Docs Shared"), /*#__PURE__*/React.createElement("th", {
-    className: "px-3 py-2"
-  }, "Email F/U"), /*#__PURE__*/React.createElement("th", {
-    className: "px-3 py-2"
-  }, "Call F/U"), /*#__PURE__*/React.createElement("th", {
-    className: "px-3 py-2"
-  }, "Friction"), /*#__PURE__*/React.createElement("th", {
-    className: "px-3 py-2"
-  }, "Link"))), /*#__PURE__*/React.createElement("tbody", null, pageRows.map(p => {
-    const cat = placementStatusCategory(p);
-    const frict = placementFriction(p);
-    return /*#__PURE__*/React.createElement("tr", {
-      key: p._row,
-      className: "border-b border-slate-100 odd:bg-slate-50/50"
-    }, /*#__PURE__*/React.createElement("td", {
-      className: "px-3 py-2 text-slate-500"
-    }, p["Sl No"]), /*#__PURE__*/React.createElement("td", {
-      className: "px-3 py-2 max-w-[200px] truncate font-medium text-slate-800"
-    }, p["Organisation Name"]), /*#__PURE__*/React.createElement("td", {
-      className: "px-3 py-2 text-slate-600"
-    }, p["Policy Type"]), /*#__PURE__*/React.createElement("td", {
-      className: "px-3 py-2"
-    }, /*#__PURE__*/React.createElement(EditableSelect, {
-      value: p["Insurer"],
-      options: INSURER_OPTIONS,
-      onSave: v => onUpdateCell(p._row, {
-        "Insurer": v
-      })
-    })), /*#__PURE__*/React.createElement("td", {
-      className: "px-3 py-2"
-    }, /*#__PURE__*/React.createElement(EditableSelect, {
-      value: p["Broker"],
-      options: BROKER_OPTIONS,
-      onSave: v => onUpdateCell(p._row, {
-        "Broker": v
-      })
-    })), /*#__PURE__*/React.createElement("td", {
-      className: "px-3 py-2"
-    }, /*#__PURE__*/React.createElement(EditableSelect, {
-      value: p["HR dashboard"],
-      options: HR_DASHBOARD_OPTIONS,
-      onSave: v => onUpdateCell(p._row, {
-        "HR dashboard": v
-      })
-    })), /*#__PURE__*/React.createElement("td", {
-      className: "px-3 py-2"
-    }, /*#__PURE__*/React.createElement(EditableSelect, {
-      value: p["Make policy active"],
-      options: MAKE_POLICY_ACTIVE_OPTIONS,
-      onSave: v => onUpdateCell(p._row, {
-        "Make policy active": v
-      })
-    })), /*#__PURE__*/React.createElement("td", {
-      className: "px-3 py-2"
-    }, /*#__PURE__*/React.createElement(EditableSelect, {
-      value: p["Status"],
-      options: STATUS_OPTIONS,
-      onSave: v => onUpdateCell(p._row, {
-        "Status": v
-      })
-    })), /*#__PURE__*/React.createElement("td", {
-      className: "px-3 py-2"
-    }, /*#__PURE__*/React.createElement(PlacementPill, {
-      label: cat
-    })), /*#__PURE__*/React.createElement("td", {
-      className: "px-3 py-2 text-slate-500"
-    }, p["Month of activation"]), /*#__PURE__*/React.createElement("td", {
-      className: "px-3 py-2 text-slate-500"
-    }, p["Date of documents shared"] || "—"), /*#__PURE__*/React.createElement("td", {
-      className: "px-3 py-2 text-slate-600"
-    }, p["No. of email f/u"] ?? "—"), /*#__PURE__*/React.createElement("td", {
-      className: "px-3 py-2 max-w-[140px] truncate text-slate-600"
-    }, p["Call f/u"] || "—"), /*#__PURE__*/React.createElement("td", {
-      className: "px-3 py-2"
-    }, frict ? /*#__PURE__*/React.createElement("span", {
-      className: "inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700"
-    }, "High") : /*#__PURE__*/React.createElement("span", {
-      className: "text-slate-300"
-    }, "—")), /*#__PURE__*/React.createElement("td", {
-      className: "px-3 py-2"
-    }, p["Relevant slack thread links/ Email (If applicable)"] && /*#__PURE__*/React.createElement("a", {
-      href: p["Relevant slack thread links/ Email (If applicable)"],
-      target: "_blank",
-      rel: "noreferrer",
-      className: "text-xs text-blue-600 underline"
-    }, "Open")));
-  }), pageRows.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
-    colSpan: 15,
+  }, /*#__PURE__*/React.createElement(EditableSelect, {
+    value: p["Status"],
+    options: STATUS_OPTIONS,
+    onSave: v => onUpdateCell(p._row, {
+      "Status": v
+    })
+  })), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 max-w-[260px] truncate text-slate-500"
+  }, p["Remarks"] || "—"))), pageRows.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    colSpan: 20,
     className: "px-3 py-8 text-center text-slate-400"
   }, "No records match."))))), /*#__PURE__*/React.createElement(PaginationBar, {
     page: page,
@@ -2073,6 +2073,7 @@ function PlacementsPartners({
    ===================================================================== */
 function PlacementsTab({
   placements,
+  headerMap,
   refresh
 }) {
   const [sub, setSub] = useState("ledger");
@@ -2092,19 +2093,22 @@ function PlacementsTab({
 
   /* Google Sheets sync — both calls route through the same generic Apps
      Script actions the rest of the dashboard uses (appendRow / updateRow),
-     just targeting the PLACEMENTS sheet instead of the invoice sheets. */
+     just targeting the PLACEMENTS sheet instead of the invoice sheets.
+     translatePlacementKeys converts our clean field names (e.g. "Status")
+     back to the sheet's exact header text (e.g. "Status ", with the
+     trailing space it actually has), so writes land in the right column. */
   async function handleRowUpdate(row, values) {
     await apiPost("updateRow", {
       sheet: "PLACEMENTS",
       row,
-      values
+      values: translatePlacementKeys(values, headerMap)
     });
     refresh();
   }
   async function handleNewRecord(values) {
     await apiPost("appendRow", {
       sheet: "PLACEMENTS",
-      values
+      values: translatePlacementKeys(values, headerMap)
     });
     refresh();
   }
@@ -2140,6 +2144,7 @@ function App() {
   const [entries, setEntries] = useState([]);
   const [rawUnmatched, setRawUnmatched] = useState([]);
   const [placements, setPlacements] = useState([]);
+  const [placementsHeaderMap, setPlacementsHeaderMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   async function load() {
@@ -2151,7 +2156,9 @@ function App() {
       const merged = [...data.matched.map(matchedToLedger), ...data.unmatched.map(unmatchedToLedger)];
       setEntries(merged);
       setRawUnmatched(data.unmatched);
-      setPlacements(data.placements || []);
+      const placementsRaw = data.placements || [];
+      setPlacementsHeaderMap(buildPlacementHeaderMap(placementsRaw));
+      setPlacements(placementsRaw.map(cleanPlacementRow));
     } catch (e) {
       setError(String(e.message || e));
     } finally {
@@ -2233,6 +2240,7 @@ function App() {
     rawUnmatched: rawUnmatched
   }), tab === "placements" && /*#__PURE__*/React.createElement(PlacementsTab, {
     placements: placements,
+    headerMap: placementsHeaderMap,
     refresh: load
   }), tab === "add" && /*#__PURE__*/React.createElement(AddBatchEntry, {
     refresh: load
