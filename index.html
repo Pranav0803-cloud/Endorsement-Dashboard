@@ -296,22 +296,30 @@ function jsonp(url) {
     let done = false;
     const timer = setTimeout(() => {
       if (!done) {
-        cleanup();
-        reject(new Error("Request timed out — double check the Apps Script URL and that it's deployed."));
+        done = true;
+        // Leave a harmless no-op in place instead of deleting it — if the
+        // response is just slow (not actually broken) and arrives after
+        // this timeout, it calls into this stub instead of throwing a
+        // ReferenceError in the console.
+        window[cbName] = () => {};
+        script.remove();
+        reject(new Error("Request timed out — the sheet may be slow to respond right now. Try refresh again in a moment."));
       }
-    }, 20000);
+    }, 45000);
     function cleanup() {
       delete window[cbName];
       script.remove();
       clearTimeout(timer);
     }
     window[cbName] = (data) => {
+      if (done) return;
       done = true;
       cleanup();
       resolve(data);
     };
     script.onerror = () => {
       if (!done) {
+        done = true;
         cleanup();
         reject(new Error("Failed to load — double check the Apps Script URL."));
       }
@@ -1703,10 +1711,8 @@ function PlacementsLedger({
       href: p["Relevant slack thread links/ Email (If applicable)"],
       target: "_blank",
       rel: "noreferrer",
-      className: "text-slate-400 hover:text-blue-600"
-    }, /*#__PURE__*/React.createElement(ExternalLink, {
-      className: "h-4 w-4"
-    }))));
+      className: "text-xs text-blue-600 underline"
+    }, "Open")));
   }), pageRows.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
     colSpan: 15,
     className: "px-3 py-8 text-center text-slate-400"
