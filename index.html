@@ -1301,10 +1301,839 @@ function AddBatchEntry({
 /* =====================================================================
    10. ROOT
    ===================================================================== */
+/* =====================================================================
+   PLACEMENTS — data helpers, dropdown option lists, and status logic
+   ===================================================================== */
+const POLICY_TYPE_OPTIONS = ["Unlimited GP", "Even OPD", "HCU", "HCU only", "Retail Gold Plan", "HS Standard Plan"];
+const INSURER_OPTIONS = ["Even", "Digit", "ABHI", "Zuno", "Magma", "Care"];
+const BROKER_OPTIONS = ["Healthysure", "Even", "Prudent", "Pazcare", "Lockton", "Sriyah", "Howden", "AON", "Mahindra", "Mutual Global", "Marsh"];
+const DATA_FLOW_OPTIONS = ["Email", "B2B payments channel"];
+const HR_DASHBOARD_OPTIONS = ["Completed", "Non Tech issue", "Tech issue", "SFTP error", "Discrepency", "On hold"];
+const MASTER_POLICY_OPTIONS = ["Completed", "Completed / NA", "Awaiting details", "NA"];
+const MAKE_POLICY_ACTIVE_OPTIONS = ["Completed", "On hold", "Non Tech issue", "Tech issue", "SFTP error", "Discrepency"];
+const POLICY_PLACEMENT_OPTIONS = ["Completed", "Awaiting details", "NA"];
+const ONBOARDING_SESSION_OPTIONS = ["Completed", "Sent", "NA"];
+const WELCOME_EMAILERS_OPTIONS = ["Sent", "Completed", "NA"];
+const MONTH_OPTIONS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const STATUS_OPTIONS = ["Policy issued", "In Progress - Policy placement", "Under issuance", "On Hold - Digit", "Completed - Make policy active pending"];
+function placementStatusCategory(p) {
+  const status = String(p["Status"] || "").trim();
+  const hr = String(p["HR dashboard"] || "").trim();
+  if (status === "Policy issued") return "Issued";
+  if (/on hold/i.test(status) || hr === "SFTP error" || /discrepen/i.test(hr)) return "Blocked / On Hold";
+  return "In Progress";
+}
+function placementFriction(p) {
+  const fu = Number(p["No. of email f/u"]) || 0;
+  return fu > 2 || !!p["Call f/u"];
+}
+const PLACEMENT_STATUS_STYLE = {
+  "Issued": "bg-emerald-50 text-emerald-700 border-emerald-200",
+  "In Progress": "bg-blue-50 text-blue-700 border-blue-200",
+  "Blocked / On Hold": "bg-rose-50 text-rose-700 border-rose-200"
+};
+function PlacementPill({
+  label
+}) {
+  return /*#__PURE__*/React.createElement("span", {
+    className: `inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium ${PLACEMENT_STATUS_STYLE[label] || "bg-slate-100 text-slate-600 border-slate-200"}`
+  }, label);
+}
+
+/* Inline editable dropdown cell — saves straight back to the sheet on change */
+function EditableSelect({
+  value,
+  options,
+  onSave
+}) {
+  const [saving, setSaving] = useState(false);
+  async function handleChange(e) {
+    const v = e.target.value;
+    setSaving(true);
+    try {
+      await onSave(v);
+    } finally {
+      setSaving(false);
+    }
+  }
+  return /*#__PURE__*/React.createElement("select", {
+    value: value || "",
+    onChange: handleChange,
+    disabled: saving,
+    className: "rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs outline-none focus:border-blue-500 disabled:opacity-50"
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "—"), options.map(o => /*#__PURE__*/React.createElement("option", {
+    key: o,
+    value: o
+  }, o)));
+}
+
+/* =====================================================================
+   ADD NEW PLACEMENT MODAL
+   ===================================================================== */
+function AddPlacementModal({
+  onClose,
+  onAdd,
+  nextSlNo
+}) {
+  const empty = {
+    "Organisation Name": "",
+    "Policy Type": "",
+    "Email Subject Line": "",
+    "Insurer": "",
+    "Broker": "",
+    "Data flow": "",
+    "HR dashboard": "",
+    "Limits": "",
+    "Master policy whitelisted": "",
+    "Make policy active": "",
+    "Policy Placement(Insurer)": "",
+    "Onboarding session": "",
+    "Welcome emailers": "",
+    "CD balance on Issuance": "",
+    "Date of documents shared": "",
+    "Policy start date": "",
+    "Month of activation": "",
+    "Status": "",
+    "Remarks": "",
+    "Relevant slack thread links/ Email (If applicable)": "",
+    "ETA to close loop from broker/sales": "",
+    "No. of email f/u": "",
+    "Call f/u": ""
+  };
+  const [form, setForm] = useState(empty);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(null);
+  const set = k => e => setForm({
+    ...form,
+    [k]: e.target.value
+  });
+  async function submit() {
+    if (!form["Organisation Name"]) {
+      setErr("Organisation Name is required.");
+      return;
+    }
+    setSaving(true);
+    setErr(null);
+    try {
+      await onAdd({
+        ...form,
+        "Sl No": nextSlNo
+      });
+      onClose();
+    } catch (e) {
+      setErr(String(e.message || e));
+    } finally {
+      setSaving(false);
+    }
+  }
+  const selectField = (label, key, options) => /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, label), /*#__PURE__*/React.createElement("select", {
+    className: inputCls,
+    value: form[key],
+    onChange: set(key)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "—"), options.map(o => /*#__PURE__*/React.createElement("option", {
+    key: o,
+    value: o
+  }, o))));
+  const textField = (label, key, placeholder) => /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, label), /*#__PURE__*/React.createElement("input", {
+    className: inputCls,
+    value: form[key],
+    onChange: set(key),
+    placeholder: placeholder || ""
+  }));
+  return /*#__PURE__*/React.createElement("div", {
+    className: "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4",
+    onClick: onClose
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl",
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mb-4 flex items-center justify-between"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "text-sm font-semibold text-slate-900"
+  }, "Add New Placement"), /*#__PURE__*/React.createElement("button", {
+    onClick: onClose,
+    className: "text-slate-400 hover:text-slate-600"
+  }, "✕")), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-2 gap-3"
+  }, textField("Organisation Name *", "Organisation Name"), selectField("Policy Type", "Policy Type", POLICY_TYPE_OPTIONS), textField("Email Subject Line", "Email Subject Line"), selectField("Insurer", "Insurer", INSURER_OPTIONS), selectField("Broker", "Broker", BROKER_OPTIONS), selectField("Data flow", "Data flow", DATA_FLOW_OPTIONS), selectField("HR dashboard", "HR dashboard", HR_DASHBOARD_OPTIONS), textField("Limits", "Limits"), selectField("Master policy whitelisted", "Master policy whitelisted", MASTER_POLICY_OPTIONS), selectField("Make policy active", "Make policy active", MAKE_POLICY_ACTIVE_OPTIONS), selectField("Policy Placement (Insurer)", "Policy Placement(Insurer)", POLICY_PLACEMENT_OPTIONS), selectField("Onboarding session", "Onboarding session", ONBOARDING_SESSION_OPTIONS), selectField("Welcome emailers", "Welcome emailers", WELCOME_EMAILERS_OPTIONS), textField("CD balance on Issuance", "CD balance on Issuance"), textField("Date of documents shared", "Date of documents shared", "YYYY-MM-DD"), textField("Policy start date", "Policy start date", "YYYY-MM-DD"), selectField("Month of activation", "Month of activation", MONTH_OPTIONS), selectField("Status", "Status", STATUS_OPTIONS), textField("ETA to close loop", "ETA to close loop from broker/sales"), textField("No. of email f/u", "No. of email f/u"), textField("Call f/u", "Call f/u", "e.g. 17 Jun 2026 with Nidhi"), /*#__PURE__*/React.createElement("div", {
+    className: "col-span-2"
+  }, textField("Relevant Slack thread / Email link", "Relevant slack thread links/ Email (If applicable)")), /*#__PURE__*/React.createElement("div", {
+    className: "col-span-2"
+  }, /*#__PURE__*/React.createElement("label", {
+    className: labelCls
+  }, "Remarks"), /*#__PURE__*/React.createElement("textarea", {
+    className: inputCls,
+    rows: 2,
+    value: form["Remarks"],
+    onChange: set("Remarks")
+  }))), err && /*#__PURE__*/React.createElement("p", {
+    className: "mt-3 text-xs text-rose-600"
+  }, err), /*#__PURE__*/React.createElement("div", {
+    className: "mt-5 flex justify-end gap-2"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: onClose,
+    className: "rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600"
+  }, "Cancel"), /*#__PURE__*/React.createElement("button", {
+    onClick: submit,
+    disabled: saving,
+    className: "rounded-lg px-3 py-2 text-sm font-semibold text-white disabled:opacity-50",
+    style: {
+      backgroundColor: BRAND
+    }
+  }, saving ? "Saving…" : "Add placement"))));
+}
+
+/* =====================================================================
+   TAB 1 — MASTER PLACEMENT LEDGER
+   ===================================================================== */
+function PlacementsLedger({
+  placements,
+  onUpdateCell,
+  onAdd
+}) {
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [monthFilter, setMonthFilter] = useState("All");
+  const [insurerFilter, setInsurerFilter] = useState("All");
+  const [showAdd, setShowAdd] = useState(false);
+  const filtered = useMemo(() => placements.filter(p => {
+    const hay = `${p["Organisation Name"] || ""} ${p["Email Subject Line"] || ""}`.toLowerCase();
+    const matchesQuery = hay.includes(query.toLowerCase());
+    const matchesStatus = statusFilter === "All" || p["Status"] === statusFilter;
+    const matchesMonth = monthFilter === "All" || p["Month of activation"] === monthFilter;
+    const matchesInsurer = insurerFilter === "All" || p["Insurer"] === insurerFilter;
+    return matchesQuery && matchesStatus && matchesMonth && matchesInsurer;
+  }), [placements, query, statusFilter, monthFilter, insurerFilter]);
+  const {
+    page,
+    setPage,
+    pageSize,
+    setPageSize,
+    totalPages,
+    pageRows
+  } = usePagedRows(filtered, 50);
+  const uniqueMonths = useMemo(() => [...new Set(placements.map(p => p["Month of activation"]).filter(Boolean))], [placements]);
+  const uniqueInsurers = useMemo(() => [...new Set(placements.map(p => p["Insurer"]).filter(Boolean))], [placements]);
+  function exportCSV() {
+    const headers = ["Sl No", "Organisation Name", "Policy Type", "Insurer", "Broker", "Data flow", "HR dashboard", "Status", "Month of activation", "No. of email f/u", "Call f/u"];
+    const lines = filtered.map(p => headers.map(h => `"${String(p[h] ?? "").replace(/"/g, '""')}"`).join(","));
+    const csv = [headers.join(","), ...lines].join("\n");
+    const blob = new Blob([csv], {
+      type: "text/csv"
+    });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "placements_ledger.csv";
+    a.click();
+  }
+  const nextSlNo = placements.reduce((m, p) => Math.max(m, Number(p["Sl No"]) || 0), 0) + 1;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col gap-4"
+  }, showAdd && /*#__PURE__*/React.createElement(AddPlacementModal, {
+    onClose: () => setShowAdd(false),
+    onAdd: onAdd,
+    nextSlNo: nextSlNo
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
+  }, /*#__PURE__*/React.createElement("input", {
+    value: query,
+    onChange: e => {
+      setQuery(e.target.value);
+      setPage(1);
+    },
+    placeholder: "Search organisation…",
+    className: `${inputCls} sm:max-w-xs`
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap items-center gap-2"
+  }, /*#__PURE__*/React.createElement("select", {
+    value: statusFilter,
+    onChange: e => {
+      setStatusFilter(e.target.value);
+      setPage(1);
+    },
+    className: "rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm"
+  }, /*#__PURE__*/React.createElement("option", null, "All"), STATUS_OPTIONS.map(s => /*#__PURE__*/React.createElement("option", {
+    key: s
+  }, s))), /*#__PURE__*/React.createElement("select", {
+    value: monthFilter,
+    onChange: e => {
+      setMonthFilter(e.target.value);
+      setPage(1);
+    },
+    className: "rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm"
+  }, /*#__PURE__*/React.createElement("option", null, "All"), uniqueMonths.map(m => /*#__PURE__*/React.createElement("option", {
+    key: m
+  }, m))), /*#__PURE__*/React.createElement("select", {
+    value: insurerFilter,
+    onChange: e => {
+      setInsurerFilter(e.target.value);
+      setPage(1);
+    },
+    className: "rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm"
+  }, /*#__PURE__*/React.createElement("option", null, "All"), uniqueInsurers.map(m => /*#__PURE__*/React.createElement("option", {
+    key: m
+  }, m))), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setShowAdd(true),
+    className: "inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-white",
+    style: {
+      backgroundColor: BRAND
+    }
+  }, "+ Add New Placement"), /*#__PURE__*/React.createElement("button", {
+    onClick: exportCSV,
+    className: "rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium"
+  }, "Export CSV"))), /*#__PURE__*/React.createElement("div", {
+    className: "overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "min-w-[1400px] w-full text-sm"
+  }, /*#__PURE__*/React.createElement("thead", {
+    className: "bg-slate-50"
+  }, /*#__PURE__*/React.createElement("tr", {
+    className: "border-b border-slate-200 text-left text-[11px] uppercase text-slate-400"
+  }, /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Sl No"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Organisation"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Policy Type"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Insurer"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Broker"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "HR Dashboard"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Make Policy Active"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Status"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Category"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Month"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Docs Shared"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Email F/U"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Call F/U"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Friction"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Link"))), /*#__PURE__*/React.createElement("tbody", null, pageRows.map(p => {
+    const cat = placementStatusCategory(p);
+    const frict = placementFriction(p);
+    return /*#__PURE__*/React.createElement("tr", {
+      key: p._row,
+      className: "border-b border-slate-100 odd:bg-slate-50/50"
+    }, /*#__PURE__*/React.createElement("td", {
+      className: "px-3 py-2 text-slate-500"
+    }, p["Sl No"]), /*#__PURE__*/React.createElement("td", {
+      className: "px-3 py-2 max-w-[200px] truncate font-medium text-slate-800"
+    }, p["Organisation Name"]), /*#__PURE__*/React.createElement("td", {
+      className: "px-3 py-2 text-slate-600"
+    }, p["Policy Type"]), /*#__PURE__*/React.createElement("td", {
+      className: "px-3 py-2"
+    }, /*#__PURE__*/React.createElement(EditableSelect, {
+      value: p["Insurer"],
+      options: INSURER_OPTIONS,
+      onSave: v => onUpdateCell(p._row, {
+        "Insurer": v
+      })
+    })), /*#__PURE__*/React.createElement("td", {
+      className: "px-3 py-2"
+    }, /*#__PURE__*/React.createElement(EditableSelect, {
+      value: p["Broker"],
+      options: BROKER_OPTIONS,
+      onSave: v => onUpdateCell(p._row, {
+        "Broker": v
+      })
+    })), /*#__PURE__*/React.createElement("td", {
+      className: "px-3 py-2"
+    }, /*#__PURE__*/React.createElement(EditableSelect, {
+      value: p["HR dashboard"],
+      options: HR_DASHBOARD_OPTIONS,
+      onSave: v => onUpdateCell(p._row, {
+        "HR dashboard": v
+      })
+    })), /*#__PURE__*/React.createElement("td", {
+      className: "px-3 py-2"
+    }, /*#__PURE__*/React.createElement(EditableSelect, {
+      value: p["Make policy active"],
+      options: MAKE_POLICY_ACTIVE_OPTIONS,
+      onSave: v => onUpdateCell(p._row, {
+        "Make policy active": v
+      })
+    })), /*#__PURE__*/React.createElement("td", {
+      className: "px-3 py-2"
+    }, /*#__PURE__*/React.createElement(EditableSelect, {
+      value: p["Status"],
+      options: STATUS_OPTIONS,
+      onSave: v => onUpdateCell(p._row, {
+        "Status": v
+      })
+    })), /*#__PURE__*/React.createElement("td", {
+      className: "px-3 py-2"
+    }, /*#__PURE__*/React.createElement(PlacementPill, {
+      label: cat
+    })), /*#__PURE__*/React.createElement("td", {
+      className: "px-3 py-2 text-slate-500"
+    }, p["Month of activation"]), /*#__PURE__*/React.createElement("td", {
+      className: "px-3 py-2 text-slate-500"
+    }, p["Date of documents shared"] || "—"), /*#__PURE__*/React.createElement("td", {
+      className: "px-3 py-2 text-slate-600"
+    }, p["No. of email f/u"] ?? "—"), /*#__PURE__*/React.createElement("td", {
+      className: "px-3 py-2 max-w-[140px] truncate text-slate-600"
+    }, p["Call f/u"] || "—"), /*#__PURE__*/React.createElement("td", {
+      className: "px-3 py-2"
+    }, frict ? /*#__PURE__*/React.createElement("span", {
+      className: "inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700"
+    }, "High") : /*#__PURE__*/React.createElement("span", {
+      className: "text-slate-300"
+    }, "—")), /*#__PURE__*/React.createElement("td", {
+      className: "px-3 py-2"
+    }, p["Relevant slack thread links/ Email (If applicable)"] && /*#__PURE__*/React.createElement("a", {
+      href: p["Relevant slack thread links/ Email (If applicable)"],
+      target: "_blank",
+      rel: "noreferrer",
+      className: "text-slate-400 hover:text-blue-600"
+    }, /*#__PURE__*/React.createElement(ExternalLink, {
+      className: "h-4 w-4"
+    }))));
+  }), pageRows.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    colSpan: 15,
+    className: "px-3 py-8 text-center text-slate-400"
+  }, "No records match."))))), /*#__PURE__*/React.createElement(PaginationBar, {
+    page: page,
+    setPage: setPage,
+    totalPages: totalPages,
+    pageSize: pageSize,
+    setPageSize: setPageSize,
+    totalRows: filtered.length,
+    shownCount: pageRows.length
+  }));
+}
+
+/* =====================================================================
+   TAB 2 — EXECUTIVE OVERVIEW & MONTHLY VELOCITY
+   ===================================================================== */
+function PlacementsExecutive({
+  placements
+}) {
+  const total = placements.length;
+  const issued = placements.filter(p => placementStatusCategory(p) === "Issued").length;
+  const inProgress = placements.filter(p => placementStatusCategory(p) === "In Progress").length;
+  const blocked = placements.filter(p => placementStatusCategory(p) === "Blocked / On Hold").length;
+  const issuedRate = total ? (issued / total * 100).toFixed(1) : "0.0";
+  const velocityRef = useRef(null);
+  const policyTypeRef = useRef(null);
+  const velocityChart = useRef(null);
+  const policyTypeChart = useRef(null);
+  const byMonth = useMemo(() => {
+    const map = {};
+    placements.forEach(p => {
+      const m = p["Month of activation"];
+      if (!m) return;
+      map[m] = map[m] || {
+        issued: 0,
+        inprogress: 0
+      };
+      const cat = placementStatusCategory(p);
+      if (cat === "Issued") map[m].issued++;else map[m].inprogress++;
+    });
+    return MONTH_OPTIONS.filter(m => map[m]).map(m => ({
+      month: m,
+      ...map[m]
+    }));
+  }, [placements]);
+  const byPolicyType = useMemo(() => {
+    const map = {};
+    placements.forEach(p => {
+      const t = (p["Policy Type"] || "Unspecified").trim();
+      map[t] = (map[t] || 0) + 1;
+    });
+    return Object.entries(map).sort((a, b) => b[1] - a[1]);
+  }, [placements]);
+  useEffect(() => {
+    if (!velocityRef.current) return;
+    if (velocityChart.current) velocityChart.current.destroy();
+    velocityChart.current = new Chart(velocityRef.current, {
+      type: "bar",
+      data: {
+        labels: byMonth.map(d => d.month),
+        datasets: [{
+          label: "Issued",
+          data: byMonth.map(d => d.issued),
+          backgroundColor: "#10b981"
+        }, {
+          label: "In Progress / Other",
+          data: byMonth.map(d => d.inprogress),
+          backgroundColor: BRAND
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          x: {
+            stacked: true
+          },
+          y: {
+            stacked: true
+          }
+        }
+      }
+    });
+  }, [byMonth]);
+  useEffect(() => {
+    if (!policyTypeRef.current) return;
+    if (policyTypeChart.current) policyTypeChart.current.destroy();
+    policyTypeChart.current = new Chart(policyTypeRef.current, {
+      type: "doughnut",
+      data: {
+        labels: byPolicyType.map(d => d[0]),
+        datasets: [{
+          data: byPolicyType.map(d => d[1]),
+          backgroundColor: ["#0055ff", "#10b981", "#f59e0b", "#f472b6", "#a78bfa", "#f87171", "#38bdf8"]
+        }]
+      },
+      options: {
+        responsive: true
+      }
+    });
+  }, [byPolicyType]);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col gap-6"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-2 gap-3 md:grid-cols-5"
+  }, /*#__PURE__*/React.createElement(KpiCard, {
+    label: "Total Policy Workload",
+    value: total
+  }), /*#__PURE__*/React.createElement(KpiCard, {
+    label: "Active Issued Rate",
+    value: `${issuedRate}%`,
+    sub: `${issued} of ${total} issued`
+  }), /*#__PURE__*/React.createElement(KpiCard, {
+    label: "In-Progress Pipeline",
+    value: inProgress
+  }), /*#__PURE__*/React.createElement(KpiCard, {
+    label: "Blocked / On Hold",
+    value: blocked
+  }), /*#__PURE__*/React.createElement(KpiCard, {
+    label: "High-Friction Records",
+    value: placements.filter(placementFriction).length
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "grid gap-6 lg:grid-cols-2"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "mb-3 text-sm font-semibold text-slate-800"
+  }, "Monthly Activation Velocity"), /*#__PURE__*/React.createElement("canvas", {
+    ref: velocityRef,
+    height: "180"
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "mb-3 text-sm font-semibold text-slate-800"
+  }, "Policy Type Portfolio Mix"), /*#__PURE__*/React.createElement("canvas", {
+    ref: policyTypeRef,
+    height: "180"
+  }))));
+}
+
+/* =====================================================================
+   TAB 3 — BOTTLENECKS, SFTP ERRORS & SLA TRACKING
+   ===================================================================== */
+function PlacementsBottlenecks({
+  placements
+}) {
+  const exceptions = placements.filter(p => {
+    const hr = String(p["HR dashboard"] || "");
+    const status = String(p["Status"] || "");
+    const remarks = String(p["Remarks"] || "");
+    return hr === "SFTP error" || /on hold/i.test(status) || /odd even tool/i.test(remarks);
+  });
+  const byBroker = useMemo(() => {
+    const map = {};
+    placements.forEach(p => {
+      const b = p["Broker"] || "Unspecified";
+      const fu = Number(p["No. of email f/u"]) || 0;
+      map[b] = map[b] || {
+        sum: 0,
+        count: 0
+      };
+      map[b].sum += fu;
+      map[b].count += 1;
+    });
+    return Object.entries(map).map(([broker, d]) => ({
+      broker,
+      avg: d.count ? d.sum / d.count : 0
+    })).sort((a, b) => b.avg - a.avg);
+  }, [placements]);
+  const brokerRef = useRef(null);
+  const brokerChart = useRef(null);
+  useEffect(() => {
+    if (!brokerRef.current) return;
+    if (brokerChart.current) brokerChart.current.destroy();
+    brokerChart.current = new Chart(brokerRef.current, {
+      type: "bar",
+      data: {
+        labels: byBroker.map(d => d.broker),
+        datasets: [{
+          label: "Avg follow-ups",
+          data: byBroker.map(d => d.avg.toFixed(1)),
+          backgroundColor: "#f59e0b"
+        }]
+      },
+      options: {
+        indexAxis: "y",
+        responsive: true,
+        plugins: {
+          legend: {
+            display: false
+          }
+        }
+      }
+    });
+  }, [byBroker]);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col gap-6"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "rounded-2xl border border-rose-200 bg-rose-50 p-4"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "mb-1 text-sm font-semibold text-rose-900"
+  }, "Operational Friction & Escalation Radar (", exceptions.length, ")"), /*#__PURE__*/React.createElement("p", {
+    className: "text-xs text-rose-700"
+  }, "SFTP errors, holds, and flagged discrepancies needing attention.")), /*#__PURE__*/React.createElement("div", {
+    className: "overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "w-full min-w-[900px] text-sm"
+  }, /*#__PURE__*/React.createElement("thead", {
+    className: "bg-slate-50"
+  }, /*#__PURE__*/React.createElement("tr", {
+    className: "text-left text-[11px] uppercase text-slate-400"
+  }, /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Organisation"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Insurer"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Status"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Remarks"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "ETA"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Link"))), /*#__PURE__*/React.createElement("tbody", null, exceptions.map(p => /*#__PURE__*/React.createElement("tr", {
+    key: p._row,
+    className: "border-t border-slate-100"
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 max-w-[200px] truncate"
+  }, p["Organisation Name"]), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, p["Insurer"]), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, /*#__PURE__*/React.createElement(PlacementPill, {
+    label: placementStatusCategory(p)
+  })), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 max-w-[260px] truncate text-slate-500"
+  }, p["Remarks"] || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 text-slate-500"
+  }, p["ETA to close loop from broker/sales"] || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, p["Relevant slack thread links/ Email (If applicable)"] && /*#__PURE__*/React.createElement("a", {
+    href: p["Relevant slack thread links/ Email (If applicable)"],
+    target: "_blank",
+    rel: "noreferrer",
+    className: "text-xs text-blue-600 underline"
+  }, "Open")))), exceptions.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    colSpan: 6,
+    className: "px-3 py-8 text-center text-slate-400"
+  }, "No exceptions — all clear."))))), /*#__PURE__*/React.createElement("div", {
+    className: "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "mb-3 text-sm font-semibold text-slate-800"
+  }, "Broker & Sales Follow-Up Velocity"), /*#__PURE__*/React.createElement("canvas", {
+    ref: brokerRef,
+    height: "140"
+  })));
+}
+
+/* =====================================================================
+   TAB 4 — INSURER, BROKER & CHANNEL DISTRIBUTION
+   ===================================================================== */
+function PlacementsPartners({
+  placements
+}) {
+  const insurerBrokerRef = useRef(null);
+  const insurerBrokerChart = useRef(null);
+  const dataFlowRef = useRef(null);
+  const dataFlowChart = useRef(null);
+  const insurers = useMemo(() => [...new Set(placements.map(p => p["Insurer"]).filter(Boolean))], [placements]);
+  const brokers = useMemo(() => [...new Set(placements.map(p => p["Broker"]).filter(Boolean))], [placements]);
+  const palette = ["#0055ff", "#10b981", "#f59e0b", "#f472b6", "#a78bfa", "#f87171", "#38bdf8", "#facc15", "#34d399", "#fb923c"];
+  useEffect(() => {
+    if (!insurerBrokerRef.current) return;
+    if (insurerBrokerChart.current) insurerBrokerChart.current.destroy();
+    const datasets = brokers.map((b, i) => ({
+      label: b,
+      data: insurers.map(ins => placements.filter(p => p["Insurer"] === ins && p["Broker"] === b).length),
+      backgroundColor: palette[i % palette.length]
+    }));
+    insurerBrokerChart.current = new Chart(insurerBrokerRef.current, {
+      type: "bar",
+      data: {
+        labels: insurers,
+        datasets
+      },
+      options: {
+        responsive: true,
+        scales: {
+          x: {
+            stacked: true
+          },
+          y: {
+            stacked: true
+          }
+        }
+      }
+    });
+  }, [insurers, brokers, placements]);
+  const byDataFlow = useMemo(() => {
+    const flows = [...new Set(placements.map(p => p["Data flow"]).filter(Boolean))];
+    return flows.map(f => {
+      const rows = placements.filter(p => p["Data flow"] === f);
+      const errorCount = rows.filter(p => {
+        const hr = String(p["HR dashboard"] || "");
+        const status = String(p["Status"] || "");
+        return hr === "SFTP error" || /discrepen/i.test(hr) || /on hold/i.test(status);
+      }).length;
+      return {
+        flow: f,
+        total: rows.length,
+        errors: errorCount
+      };
+    });
+  }, [placements]);
+  useEffect(() => {
+    if (!dataFlowRef.current) return;
+    if (dataFlowChart.current) dataFlowChart.current.destroy();
+    dataFlowChart.current = new Chart(dataFlowRef.current, {
+      type: "bar",
+      data: {
+        labels: byDataFlow.map(d => d.flow),
+        datasets: [{
+          label: "Total Volume",
+          data: byDataFlow.map(d => d.total),
+          backgroundColor: BRAND
+        }, {
+          label: "Error / Hold Count",
+          data: byDataFlow.map(d => d.errors),
+          backgroundColor: "#f43f5e"
+        }]
+      },
+      options: {
+        responsive: true
+      }
+    });
+  }, [byDataFlow]);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col gap-6"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "mb-3 text-sm font-semibold text-slate-800"
+  }, "Insurer vs Broker Placement Matrix"), /*#__PURE__*/React.createElement("canvas", {
+    ref: insurerBrokerRef,
+    height: "160"
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "mb-3 text-sm font-semibold text-slate-800"
+  }, "Intake Channel Efficiency"), /*#__PURE__*/React.createElement("canvas", {
+    ref: dataFlowRef,
+    height: "140"
+  })));
+}
+
+/* =====================================================================
+   PLACEMENTS ROOT — 4 internal sub-views under one top-level nav tab
+   ===================================================================== */
+function PlacementsTab({
+  placements,
+  refresh
+}) {
+  const [sub, setSub] = useState("ledger");
+  const subTabs = [{
+    id: "ledger",
+    label: "Master Ledger"
+  }, {
+    id: "exec",
+    label: "Executive Overview"
+  }, {
+    id: "bottlenecks",
+    label: "Bottlenecks & Friction"
+  }, {
+    id: "partners",
+    label: "Partner Distribution"
+  }];
+
+  /* Google Sheets sync — both calls route through the same generic Apps
+     Script actions the rest of the dashboard uses (appendRow / updateRow),
+     just targeting the PLACEMENTS sheet instead of the invoice sheets. */
+  async function handleRowUpdate(row, values) {
+    await apiPost("updateRow", {
+      sheet: "PLACEMENTS",
+      row,
+      values
+    });
+    refresh();
+  }
+  async function handleNewRecord(values) {
+    await apiPost("appendRow", {
+      sheet: "PLACEMENTS",
+      values
+    });
+    refresh();
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col gap-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex w-fit flex-wrap gap-1 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm"
+  }, subTabs.map(t => /*#__PURE__*/React.createElement("button", {
+    key: t.id,
+    onClick: () => setSub(t.id),
+    className: "rounded-xl px-3 py-1.5 text-xs font-medium",
+    style: sub === t.id ? {
+      backgroundColor: "#eaf1ff",
+      color: BRAND
+    } : {
+      color: "#64748b"
+    }
+  }, t.label))), sub === "ledger" && /*#__PURE__*/React.createElement(PlacementsLedger, {
+    placements: placements,
+    onUpdateCell: handleRowUpdate,
+    onAdd: handleNewRecord
+  }), sub === "exec" && /*#__PURE__*/React.createElement(PlacementsExecutive, {
+    placements: placements
+  }), sub === "bottlenecks" && /*#__PURE__*/React.createElement(PlacementsBottlenecks, {
+    placements: placements
+  }), sub === "partners" && /*#__PURE__*/React.createElement(PlacementsPartners, {
+    placements: placements
+  }));
+}
+
 function App() {
   const [tab, setTab] = useState("ledger");
   const [entries, setEntries] = useState([]);
   const [rawUnmatched, setRawUnmatched] = useState([]);
+  const [placements, setPlacements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   async function load() {
@@ -1316,6 +2145,7 @@ function App() {
       const merged = [...data.matched.map(matchedToLedger), ...data.unmatched.map(unmatchedToLedger)];
       setEntries(merged);
       setRawUnmatched(data.unmatched);
+      setPlacements(data.placements || []);
     } catch (e) {
       setError(String(e.message || e));
     } finally {
@@ -1338,6 +2168,9 @@ function App() {
   }, {
     id: "unmatched",
     label: `Unmatched Invoices (${unmatchedCount})`
+  }, {
+    id: "placements",
+    label: "Placements"
   }, {
     id: "add",
     label: "Add Batch Entry"
@@ -1392,6 +2225,9 @@ function App() {
     entries: entries,
     refresh: load,
     rawUnmatched: rawUnmatched
+  }), tab === "placements" && /*#__PURE__*/React.createElement(PlacementsTab, {
+    placements: placements,
+    refresh: load
   }), tab === "add" && /*#__PURE__*/React.createElement(AddBatchEntry, {
     refresh: load
   }))));
