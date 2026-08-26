@@ -367,14 +367,16 @@ function KpiCard({
   value,
   sub
 }) {
+  const animated = useCountUp(value);
+  const display = typeof value === "number" ? Math.round(animated) : value;
   return /*#__PURE__*/React.createElement("div", {
-    className: "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+    className: "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-transform hover:scale-[1.02] hover:shadow-md"
   }, /*#__PURE__*/React.createElement("div", {
     className: "text-[11px] uppercase tracking-wide text-slate-400"
   }, label), /*#__PURE__*/React.createElement("div", {
-    className: "text-xl font-semibold text-slate-900 mt-1"
-  }, value), sub && /*#__PURE__*/React.createElement("div", {
-    className: "text-[11px] text-slate-400 mt-1"
+    className: "mt-1 text-xl font-semibold text-slate-900"
+  }, display), sub && /*#__PURE__*/React.createElement("div", {
+    className: "mt-1 text-[11px] text-slate-400"
   }, sub));
 }
 const inputCls = "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
@@ -640,18 +642,220 @@ function MissingSidePanel({
 /* =====================================================================
    5. MASTER LEDGER
    ===================================================================== */
+/* =====================================================================
+   SHARED: EVEN LOGO (real image, embedded)
+   ===================================================================== */
+const EVEN_LOGO_SRC = "data:image/png;base64,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";
+function EvenLogo() {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-3"
+  }, /*#__PURE__*/React.createElement("img", {
+    src: EVEN_LOGO_SRC,
+    alt: "Even",
+    className: "h-8 w-auto"
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "hidden h-6 w-px bg-slate-200 sm:block"
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "hidden text-[10px] font-medium uppercase tracking-[0.18em] text-slate-400 sm:block"
+  }, "Operations Hub"));
+}
+
+/* =====================================================================
+   SHARED: lightweight toast — no context/prop-drilling needed, called
+   directly from wherever a save succeeds.
+   ===================================================================== */
+function showToast(message, type) {
+  type = type || "success";
+  const el = document.createElement("div");
+  el.textContent = message;
+  el.className = "fixed bottom-6 right-6 z-[100] rounded-xl px-4 py-3 text-sm font-medium text-white shadow-lg";
+  el.style.background = type === "success" ? "#059669" : "#e11d48";
+  el.style.transform = "translateY(12px)";
+  el.style.opacity = "0";
+  el.style.transition = "transform 220ms ease, opacity 220ms ease";
+  document.body.appendChild(el);
+  requestAnimationFrame(() => {
+    el.style.transform = "translateY(0)";
+    el.style.opacity = "1";
+  });
+  setTimeout(() => {
+    el.style.transform = "translateY(12px)";
+    el.style.opacity = "0";
+    setTimeout(() => el.remove(), 250);
+  }, 2400);
+}
+
+/* =====================================================================
+   SHARED: animated count-up for KPI numbers — purely visual polish.
+   Only animates plain integers/decimals; strings like "12.4%" or
+   already-formatted currency pass through untouched.
+   ===================================================================== */
+function useCountUp(target) {
+  const [display, setDisplay] = useState(target);
+  const fromRef = useRef(target);
+  useEffect(() => {
+    const isNumeric = typeof target === "number" && isFinite(target);
+    if (!isNumeric) {
+      setDisplay(target);
+      fromRef.current = target;
+      return;
+    }
+    const from = typeof fromRef.current === "number" ? fromRef.current : 0;
+    const to = target;
+    const duration = 500;
+    const start = performance.now();
+    let raf;
+    function tick(now) {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setDisplay(from + (to - from) * eased);
+      if (t < 1) raf = requestAnimationFrame(tick);else fromRef.current = to;
+    }
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target]);
+  return display;
+}
+
+/* =====================================================================
+   SHARED: per-column filter dropdown (checkbox multi-select, searchable)
+   ===================================================================== */
+function ColumnFilterHeader({
+  label,
+  values,
+  selected,
+  onChange,
+  sortable,
+  onSort,
+  sortActive,
+  sortDir
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const ref = useRef(null);
+  useEffect(() => {
+    function onDocClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
+  const filteredValues = values.filter(v => String(v).toLowerCase().includes(search.toLowerCase()));
+  const active = selected.length > 0;
+  function toggle(v) {
+    if (selected.includes(v)) onChange(selected.filter(s => s !== v));else onChange([...selected, v]);
+  }
+  return /*#__PURE__*/React.createElement("th", {
+    ref: ref,
+    className: "relative whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-1"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: sortable ? onSort : () => setOpen(o => !o),
+    className: `inline-flex items-center gap-1 transition-colors hover:text-slate-700 ${sortActive || active ? "text-blue-600" : ""}`
+  }, label, sortable && /*#__PURE__*/React.createElement("span", {
+    className: "text-[9px] opacity-60"
+  }, sortActive ? sortDir === "asc" ? "▲" : "▼" : "↕")), !sortable && /*#__PURE__*/React.createElement("button", {
+    onClick: () => setOpen(o => !o),
+    className: `rounded p-0.5 hover:bg-slate-100 ${active ? "text-blue-600" : "text-slate-300"}`,
+    title: "Filter"
+  }, /*#__PURE__*/React.createElement("svg", {
+    width: "11",
+    height: "11",
+    viewBox: "0 0 16 16",
+    fill: "none"
+  }, /*#__PURE__*/React.createElement("path", {
+    d: "M1 2h14l-5.5 6.5V14l-3-1.5V8.5L1 2z",
+    stroke: "currentColor",
+    strokeWidth: "1.3",
+    strokeLinejoin: "round"
+  }))), active && /*#__PURE__*/React.createElement("span", {
+    className: "rounded-full bg-blue-100 px-1.5 text-[9px] font-semibold text-blue-700"
+  }, selected.length)), open && /*#__PURE__*/React.createElement("div", {
+    className: "absolute left-0 top-full z-20 mt-1 w-56 rounded-lg border border-slate-200 bg-white p-2 normal-case shadow-lg",
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("input", {
+    value: search,
+    onChange: e => setSearch(e.target.value),
+    placeholder: "Search…",
+    className: "mb-2 w-full rounded border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-500"
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "max-h-48 overflow-y-auto"
+  }, filteredValues.map(v => /*#__PURE__*/React.createElement("label", {
+    key: v,
+    className: "flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-xs font-normal text-slate-700 hover:bg-slate-50"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: selected.includes(v),
+    onChange: () => toggle(v)
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "truncate"
+  }, v))), filteredValues.length === 0 && /*#__PURE__*/React.createElement("div", {
+    className: "px-1 py-2 text-xs font-normal text-slate-400"
+  }, "No matches")), active && /*#__PURE__*/React.createElement("button", {
+    onClick: () => onChange([]),
+    className: "mt-2 w-full rounded border border-slate-200 px-2 py-1 text-[11px] font-normal text-slate-500 hover:bg-slate-50"
+  }, "Clear filter")));
+}
+function useColumnFilters() {
+  const [filters, setFilters] = useState({});
+  const setFilter = (key, values) => setFilters(f => ({
+    ...f,
+    [key]: values
+  }));
+  const matches = (row, keys) => keys.every(key => {
+    const sel = filters[key];
+    if (!sel || sel.length === 0) return true;
+    return sel.includes(row[key]);
+  });
+  const activeCount = Object.values(filters).filter(v => v && v.length > 0).length;
+  const clearAll = () => setFilters({});
+  return {
+    filters,
+    setFilter,
+    matches,
+    activeCount,
+    clearAll
+  };
+}
+function uniqueColumnValues(rows, key) {
+  return [...new Set(rows.map(r => r[key]).filter(v => v !== null && v !== undefined && v !== ""))].sort();
+}
+
+/* =====================================================================
+   TAB — MASTER LEDGER (with per-column filters + full-text tooltips)
+   ===================================================================== */
 function MasterLedger({
   entries,
   refresh
 }) {
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
+  const [sortKey, setSortKey] = useState("piDateISO");
+  const [sortDir, setSortDir] = useState("desc");
   const [panelFor, setPanelFor] = useState(null);
+  const {
+    filters,
+    setFilter,
+    matches,
+    activeCount,
+    clearAll
+  } = useColumnFilters();
   const enriched = useMemo(() => entries.map(enrich), [entries]);
-  const filtered = useMemo(() => enriched.filter(r => {
-    const hay = `${r.company} ${r.corpId || ""} ${r.tiInvNo || ""} ${r.piFile || ""}`.toLowerCase();
-    return hay.includes(query.toLowerCase()) && (statusFilter === "All" || r.conversionStatus === statusFilter);
-  }), [enriched, query, statusFilter]);
+  const filtered = useMemo(() => {
+    let rows = enriched.filter(r => {
+      const hay = `${r.company} ${r.corpId || ""} ${r.tiInvNo || ""} ${r.piFile || ""}`.toLowerCase();
+      const matchesQuery = hay.includes(query.toLowerCase());
+      return matchesQuery && matches(r, ["company", "conversionStatus", "paymentStatus", "complianceFlag"]);
+    });
+    rows = [...rows].sort((a, b) => {
+      const av = a[sortKey] ?? "";
+      const bv = b[sortKey] ?? "";
+      if (av < bv) return sortDir === "asc" ? -1 : 1;
+      if (av > bv) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+    return rows;
+  }, [enriched, query, filters, sortKey, sortDir]);
   const {
     page,
     setPage,
@@ -660,25 +864,49 @@ function MasterLedger({
     totalPages,
     pageRows
   } = usePagedRows(filtered, 50);
-  const active = panelFor ? enriched.find(e => e.id === panelFor) : null;
+  function toggleSort(key) {
+    if (sortKey === key) setSortDir(sortDir === "asc" ? "desc" : "asc");else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  }
   function exportCSV() {
-    const headers = ["Company", "PI Date", "PI Amount", "PI Due", "TI Invoice No", "TI Date", "Gross Invoiced", "Variance", "Conversion", "Payment", "Compliance"];
-    const lines = filtered.map(r => [r.company, r.piDate || "", r.piAmount ?? "", r.piDue || "", r.tiInvNo || "", r.tiDate || "", r.tiTotal ?? "", r.variance ?? "", r.conversionStatus, r.paymentStatus, r.complianceFlag].map(v => `"${String(v).replace(/"/g, '""')}"`).join(","));
+    const headers = ["Corporate ID", "Company", "PI File", "PI Date", "PI Amount", "PI Due Date", "TI Invoice No", "TI Date", "Taxable Value", "GST Total", "Gross Invoiced", "PI vs TI Variance", "Conversion Status", "Payment Status", "Conversion Lag (days)", "Compliance Flag", "PI Source Link", "TI Source Link"];
+    const lines = filtered.map(r => [r.corpId, r.company, r.piFile || "", r.piDate || "", r.piAmount ?? "", r.piDue || "", r.tiInvNo || "", r.tiDate || "", r.tiTaxable ?? "", r.tiGst ?? "", r.tiTotal ?? "", r.variance ?? "", r.conversionStatus, r.paymentStatus, r.lag ?? "", r.complianceFlag, r.piLink || "", r.tiLink || ""].map(v => `"${String(v).replace(/"/g, '""')}"`).join(","));
     const csv = [headers.join(","), ...lines].join("\n");
     const blob = new Blob([csv], {
-      type: "text/csv"
+      type: "text/csv;charset=utf-8;"
     });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "endorsement_ledger.csv";
+    a.download = "endorsement_master_ledger.csv";
     a.click();
   }
+  async function handleSaved() {
+    showToast("Saved — status updated on the sheet.");
+  }
+  const activeEntry = panelFor ? enriched.find(e => e.id === panelFor) : null;
+  const companyOptions = useMemo(() => uniqueColumnValues(enriched, "company"), [enriched]);
+  const convOptions = useMemo(() => uniqueColumnValues(enriched, "conversionStatus"), [enriched]);
+  const payOptions = useMemo(() => uniqueColumnValues(enriched, "paymentStatus"), [enriched]);
+  const compOptions = useMemo(() => uniqueColumnValues(enriched, "complianceFlag"), [enriched]);
+  const sortTh = (label, key) => /*#__PURE__*/React.createElement("th", {
+    onClick: () => toggleSort(key),
+    className: "cursor-pointer select-none whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400 transition-colors hover:text-slate-700"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "inline-flex items-center gap-1"
+  }, label, /*#__PURE__*/React.createElement("span", {
+    className: "text-[9px] opacity-60"
+  }, sortKey === key ? sortDir === "asc" ? "▲" : "▼" : "↕")));
   return /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col gap-4"
-  }, active && /*#__PURE__*/React.createElement(MissingSidePanel, {
-    entry: active,
+  }, activeEntry && /*#__PURE__*/React.createElement(MissingSidePanel, {
+    entry: activeEntry,
     onClose: () => setPanelFor(null),
-    onSaved: refresh
+    onSaved: () => {
+      refresh();
+      handleSaved();
+    }
   }), /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
   }, /*#__PURE__*/React.createElement("input", {
@@ -687,69 +915,78 @@ function MasterLedger({
       setQuery(e.target.value);
       setPage(1);
     },
-    placeholder: "Search company, corporate ID…",
+    placeholder: "Search company, corporate ID, invoice…",
     className: `${inputCls} sm:max-w-xs`
   }), /*#__PURE__*/React.createElement("div", {
     className: "flex items-center gap-2"
-  }, /*#__PURE__*/React.createElement("select", {
-    value: statusFilter,
-    onChange: e => {
-      setStatusFilter(e.target.value);
-      setPage(1);
-    },
-    className: "rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm"
-  }, ["All", "Completed", "Proforma Issued", "Pending Proforma"].map(s => /*#__PURE__*/React.createElement("option", {
-    key: s
-  }, s))), /*#__PURE__*/React.createElement("button", {
+  }, activeCount > 0 && /*#__PURE__*/React.createElement("button", {
+    onClick: clearAll,
+    className: "rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 transition-transform hover:scale-[1.02]"
+  }, "Clear ", activeCount, " filter", activeCount > 1 ? "s" : ""), /*#__PURE__*/React.createElement("button", {
     onClick: exportCSV,
-    className: "rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium"
+    className: "inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-transform hover:scale-[1.02] hover:bg-slate-50"
   }, "Export CSV"))), /*#__PURE__*/React.createElement("div", {
     className: "overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm"
   }, /*#__PURE__*/React.createElement("table", {
-    className: "min-w-[1100px] w-full text-sm"
+    className: "min-w-[1360px] w-full border-collapse text-sm"
   }, /*#__PURE__*/React.createElement("thead", {
-    className: "bg-slate-50"
+    className: "sticky top-0 z-10 bg-slate-50"
   }, /*#__PURE__*/React.createElement("tr", {
-    className: "border-b border-slate-200 text-left text-[11px] uppercase text-slate-400"
-  }, /*#__PURE__*/React.createElement("th", {
-    className: "px-3 py-2"
-  }, "Company"), /*#__PURE__*/React.createElement("th", {
-    className: "px-3 py-2"
-  }, "PI Date"), /*#__PURE__*/React.createElement("th", {
-    className: "px-3 py-2"
-  }, "PI Amount"), /*#__PURE__*/React.createElement("th", {
-    className: "px-3 py-2"
-  }, "TI Invoice No."), /*#__PURE__*/React.createElement("th", {
-    className: "px-3 py-2"
-  }, "TI Date"), /*#__PURE__*/React.createElement("th", {
-    className: "px-3 py-2"
-  }, "Gross Invoiced"), /*#__PURE__*/React.createElement("th", {
-    className: "px-3 py-2"
-  }, "Variance"), /*#__PURE__*/React.createElement("th", {
-    className: "px-3 py-2"
-  }, "Conversion"), /*#__PURE__*/React.createElement("th", {
-    className: "px-3 py-2"
-  }, "Payment"), /*#__PURE__*/React.createElement("th", {
-    className: "px-3 py-2"
-  }, "Compliance"), /*#__PURE__*/React.createElement("th", {
-    className: "px-3 py-2"
-  }, "Actions"))), /*#__PURE__*/React.createElement("tbody", null, pageRows.map(r => /*#__PURE__*/React.createElement("tr", {
+    className: "border-b border-slate-200"
+  }, /*#__PURE__*/React.createElement(ColumnFilterHeader, {
+    label: "Company",
+    values: companyOptions,
+    selected: filters.company || [],
+    onChange: v => {
+      setFilter("company", v);
+      setPage(1);
+    }
+  }), sortTh("PI Date", "piDateISO"), sortTh("PI Amount", "piAmount"), sortTh("PI Due", "piDue"), sortTh("TI Invoice No.", "tiInvNo"), sortTh("TI Date", "tiDateISO"), sortTh("Gross Invoiced", "tiTotal"), sortTh("Variance", "variance"), /*#__PURE__*/React.createElement(ColumnFilterHeader, {
+    label: "Conversion",
+    values: convOptions,
+    selected: filters.conversionStatus || [],
+    onChange: v => {
+      setFilter("conversionStatus", v);
+      setPage(1);
+    }
+  }), /*#__PURE__*/React.createElement(ColumnFilterHeader, {
+    label: "Payment",
+    values: payOptions,
+    selected: filters.paymentStatus || [],
+    onChange: v => {
+      setFilter("paymentStatus", v);
+      setPage(1);
+    }
+  }), /*#__PURE__*/React.createElement(ColumnFilterHeader, {
+    label: "Compliance",
+    values: compOptions,
+    selected: filters.complianceFlag || [],
+    onChange: v => {
+      setFilter("complianceFlag", v);
+      setPage(1);
+    }
+  }), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400"
+  }, "Docs / Actions"))), /*#__PURE__*/React.createElement("tbody", null, pageRows.map(r => /*#__PURE__*/React.createElement("tr", {
     key: r.id,
-    className: "border-b border-slate-100 odd:bg-slate-50/50"
+    className: "border-b border-slate-100 odd:bg-slate-50/50 transition-colors hover:bg-blue-50/40"
   }, /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2 max-w-[200px] truncate"
+    className: "max-w-[220px] truncate px-3 py-2 text-slate-800",
+    title: r.company
   }, r.company), /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2 text-slate-500"
+    className: "whitespace-nowrap px-3 py-2 text-slate-500"
   }, r.piDate || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2"
+    className: "whitespace-nowrap px-3 py-2 tabular-nums text-slate-800"
   }, inr(r.piAmount)), /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2"
+    className: "whitespace-nowrap px-3 py-2 text-slate-500"
+  }, r.piDue || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "whitespace-nowrap px-3 py-2 text-slate-700"
   }, r.tiInvNo || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2 text-slate-500"
+    className: "whitespace-nowrap px-3 py-2 text-slate-500"
   }, r.tiDate || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2"
+    className: "whitespace-nowrap px-3 py-2 tabular-nums text-slate-800"
   }, inr(r.tiTotal)), /*#__PURE__*/React.createElement("td", {
-    className: `px-3 py-2 ${r.variance ? "text-rose-600" : "text-slate-400"}`
+    className: `whitespace-nowrap px-3 py-2 tabular-nums ${r.variance ? "text-rose-600" : "text-slate-400"}`
   }, r.variance == null ? "—" : inr(r.variance)), /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2"
   }, /*#__PURE__*/React.createElement(Pill, {
@@ -763,25 +1000,39 @@ function MasterLedger({
   }, /*#__PURE__*/React.createElement(Pill, {
     label: r.complianceFlag
   })), /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2 whitespace-nowrap"
-  }, !r.tiInvNo && /*#__PURE__*/React.createElement("button", {
+    className: "whitespace-nowrap px-3 py-2"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2"
+  }, r.piLink && /*#__PURE__*/React.createElement("a", {
+    href: r.piLink,
+    target: "_blank",
+    rel: "noreferrer",
+    title: "PI source",
+    className: "text-slate-400 transition-colors hover:text-blue-600"
+  }, "PI↗"), r.tiLink && /*#__PURE__*/React.createElement("a", {
+    href: r.tiLink,
+    target: "_blank",
+    rel: "noreferrer",
+    title: "TI source",
+    className: "text-slate-400 transition-colors hover:text-emerald-600"
+  }, "TI↗"), !r.tiInvNo && /*#__PURE__*/React.createElement("button", {
     onClick: () => setPanelFor(r.id),
-    className: "text-xs font-medium rounded-md border px-2 py-1 mr-1",
+    className: "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-transform hover:scale-[1.03] hover:bg-blue-50",
     style: {
       borderColor: BRAND,
       color: BRAND
     }
   }, "+ Add TI"), !r.piFile && /*#__PURE__*/React.createElement("button", {
     onClick: () => setPanelFor(r.id),
-    className: "text-xs font-medium rounded-md border px-2 py-1",
+    className: "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-transform hover:scale-[1.03] hover:bg-blue-50",
     style: {
       borderColor: BRAND,
       color: BRAND
     }
-  }, "+ Add PI")))), pageRows.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
-    colSpan: 11,
+  }, "+ Add PI"))))), pageRows.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    colSpan: 12,
     className: "px-3 py-8 text-center text-slate-400"
-  }, "No records match."))))), /*#__PURE__*/React.createElement(PaginationBar, {
+  }, "No records match your filters."))))), /*#__PURE__*/React.createElement(PaginationBar, {
     page: page,
     setPage: setPage,
     totalPages: totalPages,
@@ -789,6 +1040,63 @@ function MasterLedger({
     setPageSize: setPageSize,
     totalRows: filtered.length,
     shownCount: pageRows.length
+  }));
+}
+
+/* =====================================================================
+   ENDORSEMENTS ROOT — 5 internal sub-views under one top-level nav tab,
+   mirroring the same pattern as PlacementsTab.
+   ===================================================================== */
+function EndorsementsTab({
+  entries,
+  rawUnmatched,
+  refresh
+}) {
+  const [sub, setSub] = useState("ledger");
+  const unmatchedCount = entries.filter(e => !e.tiInvNo || !e.piFile).length;
+  const subTabs = [{
+    id: "ledger",
+    label: "Master Ledger"
+  }, {
+    id: "exec",
+    label: "Executive & Revenue"
+  }, {
+    id: "ops",
+    label: "Operations & Pipeline"
+  }, {
+    id: "unmatched",
+    label: `Unmatched Invoices (${unmatchedCount})`
+  }, {
+    id: "add",
+    label: "Add Batch Entry"
+  }];
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col gap-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex w-fit flex-wrap gap-1 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm"
+  }, subTabs.map(t => /*#__PURE__*/React.createElement("button", {
+    key: t.id,
+    onClick: () => setSub(t.id),
+    className: "rounded-xl px-3 py-1.5 text-xs font-medium transition-all",
+    style: sub === t.id ? {
+      backgroundColor: "#eaf1ff",
+      color: BRAND
+    } : {
+      color: "#64748b"
+    }
+  }, t.label))), sub === "ledger" && /*#__PURE__*/React.createElement(MasterLedger, {
+    entries: entries,
+    refresh: refresh
+  }), sub === "exec" && /*#__PURE__*/React.createElement(ExecutiveOverview, {
+    entries: entries
+  }), sub === "ops" && /*#__PURE__*/React.createElement(OperationsFunnel, {
+    entries: entries
+  }), sub === "unmatched" && /*#__PURE__*/React.createElement(UnmatchedInvoices, {
+    entries: entries,
+    refresh: refresh,
+    rawUnmatched: rawUnmatched
+  }), sub === "add" && /*#__PURE__*/React.createElement(AddBatchEntry, {
+    refresh: refresh
   }));
 }
 
@@ -1539,18 +1847,19 @@ function PlacementsLedger({
   onAdd
 }) {
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
-  const [monthFilter, setMonthFilter] = useState("All");
-  const [insurerFilter, setInsurerFilter] = useState("All");
   const [showAdd, setShowAdd] = useState(false);
+  const {
+    filters,
+    setFilter,
+    matches,
+    activeCount,
+    clearAll
+  } = useColumnFilters();
+  const FILTER_COLS = ["Policy Type", "Insurer", "Broker", "Data flow", "HR dashboard", "Master policy whitelisted", "Make policy active", "Policy Placement(Insurer)", "Onboarding session", "Welcome emailers", "Month of activation", "Status"];
   const filtered = useMemo(() => placements.filter(p => {
     const hay = `${p["Organisation Name"] || ""} ${p["Email Subject Line"] || ""}`.toLowerCase();
-    const matchesQuery = hay.includes(query.toLowerCase());
-    const matchesStatus = statusFilter === "All" || p["Status"] === statusFilter;
-    const matchesMonth = monthFilter === "All" || p["Month of activation"] === monthFilter;
-    const matchesInsurer = insurerFilter === "All" || p["Insurer"] === insurerFilter;
-    return matchesQuery && matchesStatus && matchesMonth && matchesInsurer;
-  }), [placements, query, statusFilter, monthFilter, insurerFilter]);
+    return hay.includes(query.toLowerCase()) && matches(p, FILTER_COLS);
+  }), [placements, query, filters]);
   const {
     page,
     setPage,
@@ -1559,8 +1868,18 @@ function PlacementsLedger({
     totalPages,
     pageRows
   } = usePagedRows(filtered, 50);
-  const uniqueMonths = useMemo(() => [...new Set(placements.map(p => p["Month of activation"]).filter(Boolean))], [placements]);
-  const uniqueInsurers = useMemo(() => [...new Set(placements.map(p => p["Insurer"]).filter(Boolean))], [placements]);
+  const policyTypeOpts = useMemo(() => uniqueColumnValues(placements, "Policy Type"), [placements]);
+  const insurerOpts = useMemo(() => uniqueColumnValues(placements, "Insurer"), [placements]);
+  const brokerOpts = useMemo(() => uniqueColumnValues(placements, "Broker"), [placements]);
+  const dataFlowOpts = useMemo(() => uniqueColumnValues(placements, "Data flow"), [placements]);
+  const hrOpts = useMemo(() => uniqueColumnValues(placements, "HR dashboard"), [placements]);
+  const masterPolicyOpts = useMemo(() => uniqueColumnValues(placements, "Master policy whitelisted"), [placements]);
+  const makePolicyOpts = useMemo(() => uniqueColumnValues(placements, "Make policy active"), [placements]);
+  const policyPlacementOpts = useMemo(() => uniqueColumnValues(placements, "Policy Placement(Insurer)"), [placements]);
+  const onboardingOpts = useMemo(() => uniqueColumnValues(placements, "Onboarding session"), [placements]);
+  const welcomeOpts = useMemo(() => uniqueColumnValues(placements, "Welcome emailers"), [placements]);
+  const monthOpts = useMemo(() => uniqueColumnValues(placements, "Month of activation"), [placements]);
+  const statusOpts = useMemo(() => uniqueColumnValues(placements, "Status"), [placements]);
   const CSV_COLUMNS = ["Sl No", "Organisation Name", "Policy Type", "Email Subject Line", "Insurer", "Broker", "Data flow", "HR dashboard", "Limits", "Master policy whitelisted", "Make policy active", "Policy Placement(Insurer)", "Onboarding session", "Welcome emailers", "CD balance on Issuance", "Date of documents shared", "Policy start date", "Month of activation", "Status", "Remarks"];
   function exportCSV() {
     const lines = filtered.map(p => CSV_COLUMNS.map(h => `"${String(p[h] ?? "").replace(/"/g, '""')}"`).join(","));
@@ -1574,15 +1893,19 @@ function PlacementsLedger({
     a.click();
   }
   const nextSlNo = placements.reduce((m, p) => Math.max(m, Number(p["Sl No"]) || 0), 0) + 1;
-  const th = label => /*#__PURE__*/React.createElement("th", {
-    key: label,
-    className: "px-3 py-2 whitespace-nowrap"
-  }, label);
+  async function saveCell(row, values) {
+    await onUpdateCell(row, values);
+    showToast("Saved — updated on the sheet.");
+  }
+  async function addPlacement(values) {
+    await onAdd(values);
+    showToast("Placement added to the sheet.");
+  }
   return /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col gap-4"
   }, showAdd && /*#__PURE__*/React.createElement(AddPlacementModal, {
     onClose: () => setShowAdd(false),
-    onAdd: onAdd,
+    onAdd: addPlacement,
     nextSlNo: nextSlNo
   }), /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
@@ -1596,42 +1919,18 @@ function PlacementsLedger({
     className: `${inputCls} sm:max-w-xs`
   }), /*#__PURE__*/React.createElement("div", {
     className: "flex flex-wrap items-center gap-2"
-  }, /*#__PURE__*/React.createElement("select", {
-    value: statusFilter,
-    onChange: e => {
-      setStatusFilter(e.target.value);
-      setPage(1);
-    },
-    className: "rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm"
-  }, /*#__PURE__*/React.createElement("option", null, "All"), STATUS_OPTIONS.map(s => /*#__PURE__*/React.createElement("option", {
-    key: s
-  }, s))), /*#__PURE__*/React.createElement("select", {
-    value: monthFilter,
-    onChange: e => {
-      setMonthFilter(e.target.value);
-      setPage(1);
-    },
-    className: "rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm"
-  }, /*#__PURE__*/React.createElement("option", null, "All"), uniqueMonths.map(m => /*#__PURE__*/React.createElement("option", {
-    key: m
-  }, m))), /*#__PURE__*/React.createElement("select", {
-    value: insurerFilter,
-    onChange: e => {
-      setInsurerFilter(e.target.value);
-      setPage(1);
-    },
-    className: "rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm"
-  }, /*#__PURE__*/React.createElement("option", null, "All"), uniqueInsurers.map(m => /*#__PURE__*/React.createElement("option", {
-    key: m
-  }, m))), /*#__PURE__*/React.createElement("button", {
+  }, activeCount > 0 && /*#__PURE__*/React.createElement("button", {
+    onClick: clearAll,
+    className: "rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 transition-transform hover:scale-[1.02]"
+  }, "Clear ", activeCount, " filter", activeCount > 1 ? "s" : ""), /*#__PURE__*/React.createElement("button", {
     onClick: () => setShowAdd(true),
-    className: "inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-white",
+    className: "inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-white transition-transform hover:scale-[1.02]",
     style: {
       backgroundColor: BRAND
     }
   }, "+ Add New Placement"), /*#__PURE__*/React.createElement("button", {
     onClick: exportCSV,
-    className: "rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium"
+    className: "rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium transition-transform hover:scale-[1.02] hover:bg-slate-50"
   }, "Export CSV"))), /*#__PURE__*/React.createElement("div", {
     className: "overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm"
   }, /*#__PURE__*/React.createElement("table", {
@@ -1640,23 +1939,137 @@ function PlacementsLedger({
     className: "bg-slate-50"
   }, /*#__PURE__*/React.createElement("tr", {
     className: "border-b border-slate-200 text-left text-[11px] uppercase text-slate-400"
-  }, ["Sl No", "Organisation Name", "Policy Type", "Email Subject Line", "Insurer", "Broker", "Data flow", "HR dashboard", "Limits", "Master policy whitelisted", "Make policy active", "Policy Placement (Insurer)", "Onboarding session", "Welcome emailers", "CD balance on Issuance", "Date of documents shared", "Policy start date", "Month of activation", "Status", "Remarks"].map(th))), /*#__PURE__*/React.createElement("tbody", null, pageRows.map(p => /*#__PURE__*/React.createElement("tr", {
+  }, /*#__PURE__*/React.createElement("th", {
+    className: "whitespace-nowrap px-3 py-2"
+  }, "Sl No"), /*#__PURE__*/React.createElement("th", {
+    className: "whitespace-nowrap px-3 py-2"
+  }, "Organisation Name"), /*#__PURE__*/React.createElement(ColumnFilterHeader, {
+    label: "Policy Type",
+    values: policyTypeOpts,
+    selected: filters["Policy Type"] || [],
+    onChange: v => {
+      setFilter("Policy Type", v);
+      setPage(1);
+    }
+  }), /*#__PURE__*/React.createElement("th", {
+    className: "whitespace-nowrap px-3 py-2"
+  }, "Email Subject Line"), /*#__PURE__*/React.createElement(ColumnFilterHeader, {
+    label: "Insurer",
+    values: insurerOpts,
+    selected: filters["Insurer"] || [],
+    onChange: v => {
+      setFilter("Insurer", v);
+      setPage(1);
+    }
+  }), /*#__PURE__*/React.createElement(ColumnFilterHeader, {
+    label: "Broker",
+    values: brokerOpts,
+    selected: filters["Broker"] || [],
+    onChange: v => {
+      setFilter("Broker", v);
+      setPage(1);
+    }
+  }), /*#__PURE__*/React.createElement(ColumnFilterHeader, {
+    label: "Data flow",
+    values: dataFlowOpts,
+    selected: filters["Data flow"] || [],
+    onChange: v => {
+      setFilter("Data flow", v);
+      setPage(1);
+    }
+  }), /*#__PURE__*/React.createElement(ColumnFilterHeader, {
+    label: "HR dashboard",
+    values: hrOpts,
+    selected: filters["HR dashboard"] || [],
+    onChange: v => {
+      setFilter("HR dashboard", v);
+      setPage(1);
+    }
+  }), /*#__PURE__*/React.createElement("th", {
+    className: "whitespace-nowrap px-3 py-2"
+  }, "Limits"), /*#__PURE__*/React.createElement(ColumnFilterHeader, {
+    label: "Master policy whitelisted",
+    values: masterPolicyOpts,
+    selected: filters["Master policy whitelisted"] || [],
+    onChange: v => {
+      setFilter("Master policy whitelisted", v);
+      setPage(1);
+    }
+  }), /*#__PURE__*/React.createElement(ColumnFilterHeader, {
+    label: "Make policy active",
+    values: makePolicyOpts,
+    selected: filters["Make policy active"] || [],
+    onChange: v => {
+      setFilter("Make policy active", v);
+      setPage(1);
+    }
+  }), /*#__PURE__*/React.createElement(ColumnFilterHeader, {
+    label: "Policy Placement (Insurer)",
+    values: policyPlacementOpts,
+    selected: filters["Policy Placement(Insurer)"] || [],
+    onChange: v => {
+      setFilter("Policy Placement(Insurer)", v);
+      setPage(1);
+    }
+  }), /*#__PURE__*/React.createElement(ColumnFilterHeader, {
+    label: "Onboarding session",
+    values: onboardingOpts,
+    selected: filters["Onboarding session"] || [],
+    onChange: v => {
+      setFilter("Onboarding session", v);
+      setPage(1);
+    }
+  }), /*#__PURE__*/React.createElement(ColumnFilterHeader, {
+    label: "Welcome emailers",
+    values: welcomeOpts,
+    selected: filters["Welcome emailers"] || [],
+    onChange: v => {
+      setFilter("Welcome emailers", v);
+      setPage(1);
+    }
+  }), /*#__PURE__*/React.createElement("th", {
+    className: "whitespace-nowrap px-3 py-2"
+  }, "CD balance on Issuance"), /*#__PURE__*/React.createElement("th", {
+    className: "whitespace-nowrap px-3 py-2"
+  }, "Date of documents shared"), /*#__PURE__*/React.createElement("th", {
+    className: "whitespace-nowrap px-3 py-2"
+  }, "Policy start date"), /*#__PURE__*/React.createElement(ColumnFilterHeader, {
+    label: "Month of activation",
+    values: monthOpts,
+    selected: filters["Month of activation"] || [],
+    onChange: v => {
+      setFilter("Month of activation", v);
+      setPage(1);
+    }
+  }), /*#__PURE__*/React.createElement(ColumnFilterHeader, {
+    label: "Status",
+    values: statusOpts,
+    selected: filters["Status"] || [],
+    onChange: v => {
+      setFilter("Status", v);
+      setPage(1);
+    }
+  }), /*#__PURE__*/React.createElement("th", {
+    className: "whitespace-nowrap px-3 py-2"
+  }, "Remarks"))), /*#__PURE__*/React.createElement("tbody", null, pageRows.map(p => /*#__PURE__*/React.createElement("tr", {
     key: p._row,
-    className: "border-b border-slate-100 odd:bg-slate-50/50"
+    className: "border-b border-slate-100 odd:bg-slate-50/50 transition-colors hover:bg-blue-50/40"
   }, /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2 text-slate-500"
   }, p["Sl No"]), /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2 max-w-[200px] truncate font-medium text-slate-800"
+    className: "max-w-[200px] truncate px-3 py-2 font-medium text-slate-800",
+    title: p["Organisation Name"]
   }, p["Organisation Name"]), /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2 text-slate-600 whitespace-nowrap"
+    className: "whitespace-nowrap px-3 py-2 text-slate-600"
   }, p["Policy Type"] || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2 max-w-[220px] truncate text-slate-500"
+    className: "max-w-[220px] truncate px-3 py-2 text-slate-500",
+    title: p["Email Subject Line"]
   }, p["Email Subject Line"] || "—"), /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2"
   }, /*#__PURE__*/React.createElement(EditableSelect, {
     value: p["Insurer"],
     options: INSURER_OPTIONS,
-    onSave: v => onUpdateCell(p._row, {
+    onSave: v => saveCell(p._row, {
       "Insurer": v
     })
   })), /*#__PURE__*/React.createElement("td", {
@@ -1664,55 +2077,56 @@ function PlacementsLedger({
   }, /*#__PURE__*/React.createElement(EditableSelect, {
     value: p["Broker"],
     options: BROKER_OPTIONS,
-    onSave: v => onUpdateCell(p._row, {
+    onSave: v => saveCell(p._row, {
       "Broker": v
     })
   })), /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2 text-slate-600 whitespace-nowrap"
+    className: "whitespace-nowrap px-3 py-2 text-slate-600"
   }, p["Data flow"] || "—"), /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2"
   }, /*#__PURE__*/React.createElement(EditableSelect, {
     value: p["HR dashboard"],
     options: HR_DASHBOARD_OPTIONS,
-    onSave: v => onUpdateCell(p._row, {
+    onSave: v => saveCell(p._row, {
       "HR dashboard": v
     })
   })), /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2 text-slate-600 whitespace-nowrap"
+    className: "whitespace-nowrap px-3 py-2 text-slate-600"
   }, p["Limits"] || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2 text-slate-600 whitespace-nowrap"
+    className: "whitespace-nowrap px-3 py-2 text-slate-600"
   }, p["Master policy whitelisted"] || "—"), /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2"
   }, /*#__PURE__*/React.createElement(EditableSelect, {
     value: p["Make policy active"],
     options: MAKE_POLICY_ACTIVE_OPTIONS,
-    onSave: v => onUpdateCell(p._row, {
+    onSave: v => saveCell(p._row, {
       "Make policy active": v
     })
   })), /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2 text-slate-600 whitespace-nowrap"
+    className: "whitespace-nowrap px-3 py-2 text-slate-600"
   }, p["Policy Placement(Insurer)"] || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2 text-slate-600 whitespace-nowrap"
+    className: "whitespace-nowrap px-3 py-2 text-slate-600"
   }, p["Onboarding session"] || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2 text-slate-600 whitespace-nowrap"
+    className: "whitespace-nowrap px-3 py-2 text-slate-600"
   }, p["Welcome emailers"] || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2 text-slate-600 whitespace-nowrap"
+    className: "whitespace-nowrap px-3 py-2 text-slate-600"
   }, p["CD balance on Issuance"] || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2 text-slate-500 whitespace-nowrap"
+    className: "whitespace-nowrap px-3 py-2 text-slate-500"
   }, p["Date of documents shared"] || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2 text-slate-500 whitespace-nowrap"
+    className: "whitespace-nowrap px-3 py-2 text-slate-500"
   }, p["Policy start date"] || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2 text-slate-500 whitespace-nowrap"
+    className: "whitespace-nowrap px-3 py-2 text-slate-500"
   }, p["Month of activation"] || "—"), /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2"
   }, /*#__PURE__*/React.createElement(EditableSelect, {
     value: p["Status"],
     options: STATUS_OPTIONS,
-    onSave: v => onUpdateCell(p._row, {
+    onSave: v => saveCell(p._row, {
       "Status": v
     })
   })), /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2 max-w-[260px] truncate text-slate-500"
+    className: "max-w-[260px] truncate px-3 py-2 text-slate-500",
+    title: p["Remarks"]
   }, p["Remarks"] || "—"))), pageRows.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
     colSpan: 20,
     className: "px-3 py-8 text-center text-slate-400"
@@ -1726,6 +2140,7 @@ function PlacementsLedger({
     shownCount: pageRows.length
   }));
 }
+
 
 /* =====================================================================
    TAB 2 — EXECUTIVE OVERVIEW & MONTHLY VELOCITY
@@ -2140,7 +2555,7 @@ function PlacementsTab({
 }
 
 function App() {
-  const [tab, setTab] = useState("ledger");
+  const [tab, setTab] = useState("endorsements");
   const [entries, setEntries] = useState([]);
   const [rawUnmatched, setRawUnmatched] = useState([]);
   const [placements, setPlacements] = useState([]);
@@ -2168,57 +2583,39 @@ function App() {
   useEffect(() => {
     load();
   }, []);
-  const unmatchedCount = entries.filter(e => !e.tiInvNo || !e.piFile).length;
   const tabs = [{
-    id: "ledger",
-    label: "Master Ledger"
-  }, {
-    id: "exec",
-    label: "Executive & Revenue"
-  }, {
-    id: "ops",
-    label: "Operations & Pipeline"
-  }, {
-    id: "unmatched",
-    label: `Unmatched Invoices (${unmatchedCount})`
+    id: "endorsements",
+    label: "Endorsements"
   }, {
     id: "placements",
     label: "Placements"
-  }, {
-    id: "add",
-    label: "Add Batch Entry"
   }];
   if (API_URL.indexOf("PASTE_YOUR") === 0) {
     return /*#__PURE__*/React.createElement("div", {
-      className: "max-w-lg mx-auto mt-24 rounded-2xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800"
+      className: "mx-auto mt-24 max-w-lg rounded-2xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800"
     }, "This dashboard isn't connected yet — open ", /*#__PURE__*/React.createElement("code", null, "index.html"), ", find the line starting with ", /*#__PURE__*/React.createElement("code", null, "const API_URL ="), ", and paste in your Apps Script Web App URL.");
   }
   return /*#__PURE__*/React.createElement("div", {
     className: "min-h-screen w-full bg-slate-50 text-slate-900"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "mx-auto max-w-[1400px] px-4 py-6 sm:px-6"
+    className: "mx-auto max-w-[1500px] px-4 py-6 sm:px-6"
   }, /*#__PURE__*/React.createElement("header", {
-    className: "mb-6"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "text-lg font-bold",
-    style: {
-      color: BRAND
-    }
-  }, "Even"), /*#__PURE__*/React.createElement("h1", {
-    className: "text-2xl font-bold sm:text-3xl"
-  }, "Endorsements Operations & Financial Dashboard"), /*#__PURE__*/React.createElement("p", {
+    className: "mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(EvenLogo, null), /*#__PURE__*/React.createElement("h1", {
+    className: "mt-2 text-2xl font-bold sm:text-3xl"
+  }, "Operations & Financial Dashboard"), /*#__PURE__*/React.createElement("p", {
     className: "text-sm text-slate-500"
   }, loading ? "Loading…" : error ? /*#__PURE__*/React.createElement("span", {
     className: "text-rose-600"
-  }, error) : `${entries.length} records synced live from the sheet`, " ", /*#__PURE__*/React.createElement("button", {
+  }, error) : `${entries.length} endorsement records + ${placements.length} placements, synced live from the sheet`, " ", /*#__PURE__*/React.createElement("button", {
     onClick: load,
-    className: "ml-2 underline"
-  }, "refresh"))), /*#__PURE__*/React.createElement("nav", {
-    className: "mb-6 flex flex-wrap gap-1 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm"
+    className: "ml-2 underline transition-colors hover:text-blue-600"
+  }, "refresh")))), /*#__PURE__*/React.createElement("nav", {
+    className: "mb-6 flex w-fit gap-1 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm"
   }, tabs.map(t => /*#__PURE__*/React.createElement("button", {
     key: t.id,
     onClick: () => setTab(t.id),
-    className: "rounded-xl px-3 py-2 text-sm font-medium",
+    className: "rounded-xl px-4 py-2 text-sm font-semibold transition-all",
     style: tab === t.id ? {
       backgroundColor: "#eaf1ff",
       color: BRAND
@@ -2226,23 +2623,14 @@ function App() {
       color: "#64748b"
     }
   }, t.label))), loading ? /*#__PURE__*/React.createElement("div", {
-    className: "text-center text-slate-400 py-20"
-  }, "Loading sheet data…") : /*#__PURE__*/React.createElement("main", null, tab === "ledger" && /*#__PURE__*/React.createElement(MasterLedger, {
+    className: "py-20 text-center text-slate-400"
+  }, "Loading sheet data…") : /*#__PURE__*/React.createElement("main", null, tab === "endorsements" && /*#__PURE__*/React.createElement(EndorsementsTab, {
     entries: entries,
+    rawUnmatched: rawUnmatched,
     refresh: load
-  }), tab === "exec" && /*#__PURE__*/React.createElement(ExecutiveOverview, {
-    entries: entries
-  }), tab === "ops" && /*#__PURE__*/React.createElement(OperationsFunnel, {
-    entries: entries
-  }), tab === "unmatched" && /*#__PURE__*/React.createElement(UnmatchedInvoices, {
-    entries: entries,
-    refresh: load,
-    rawUnmatched: rawUnmatched
   }), tab === "placements" && /*#__PURE__*/React.createElement(PlacementsTab, {
     placements: placements,
     headerMap: placementsHeaderMap,
-    refresh: load
-  }), tab === "add" && /*#__PURE__*/React.createElement(AddBatchEntry, {
     refresh: load
   }))));
 }
