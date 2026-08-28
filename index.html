@@ -967,7 +967,7 @@ function MasterLedger({
   }, "Export CSV"))), /*#__PURE__*/React.createElement("div", {
     className: "overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm"
   }, /*#__PURE__*/React.createElement("table", {
-    className: "min-w-[1360px] w-full border-collapse text-sm"
+    className: "min-w-[1120px] w-full border-collapse text-sm"
   }, /*#__PURE__*/React.createElement("thead", {
     className: "sticky top-0 z-10 bg-slate-50"
   }, /*#__PURE__*/React.createElement("tr", {
@@ -980,7 +980,7 @@ function MasterLedger({
       setFilter("company", v);
       setPage(1);
     }
-  }), sortTh("PI Date", "piDateISO"), sortTh("PI Amount", "piAmount"), sortTh("PI Due", "piDue"), sortTh("TI Invoice No.", "tiInvNo"), sortTh("TI Date", "tiDateISO"), sortTh("Gross Invoiced", "tiTotal"), sortTh("Variance", "variance"), /*#__PURE__*/React.createElement(ColumnFilterHeader, {
+  }), sortTh("PI Date", "piDateISO"), sortTh("PI Amount", "piAmount"), sortTh("TI Invoice No.", "tiInvNo"), sortTh("TI Date", "tiDateISO"), sortTh("TI Amount", "tiTotal"), /*#__PURE__*/React.createElement(ColumnFilterHeader, {
     label: "Conversion",
     values: convOptions,
     selected: filters.conversionStatus || [],
@@ -1017,16 +1017,12 @@ function MasterLedger({
   }, r.piDate || "—"), /*#__PURE__*/React.createElement("td", {
     className: "whitespace-nowrap px-3 py-2 tabular-nums text-slate-800"
   }, inr(r.piAmount)), /*#__PURE__*/React.createElement("td", {
-    className: "whitespace-nowrap px-3 py-2 text-slate-500"
-  }, r.piDue || "—"), /*#__PURE__*/React.createElement("td", {
     className: "whitespace-nowrap px-3 py-2 text-slate-700"
   }, r.tiInvNo || "—"), /*#__PURE__*/React.createElement("td", {
     className: "whitespace-nowrap px-3 py-2 text-slate-500"
   }, r.tiDate || "—"), /*#__PURE__*/React.createElement("td", {
     className: "whitespace-nowrap px-3 py-2 tabular-nums text-slate-800"
   }, inr(r.tiTotal)), /*#__PURE__*/React.createElement("td", {
-    className: `whitespace-nowrap px-3 py-2 tabular-nums ${r.variance ? "text-rose-600" : "text-slate-400"}`
-  }, r.variance == null ? "—" : inr(r.variance)), /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2"
   }, /*#__PURE__*/React.createElement(Pill, {
     label: r.conversionStatus
@@ -1069,7 +1065,7 @@ function MasterLedger({
       color: BRAND
     }
   }, "+ Add PI"))))), pageRows.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
-    colSpan: 12,
+    colSpan: 10,
     className: "px-3 py-8 text-center text-slate-400"
   }, "No records match your filters."))))), /*#__PURE__*/React.createElement(PaginationBar, {
     page: page,
