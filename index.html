@@ -119,8 +119,8 @@ function unmatchedToLedger(u) {
 }
 const TODAY = new Date();
 function enrich(r) {
-  const hasTI = !!r.tiInvNo,
-    hasPI = !!r.piFile;
+  const hasTI = !!(r.tiInvNo || r.tiLink),
+    hasPI = !!(r.piFile || r.piLink);
   const hasBoth = hasTI && hasPI;
   let conversionStatus = "Pending Proforma";
   if (hasBoth) conversionStatus = "Completed";
@@ -449,7 +449,7 @@ function MissingSidePanel({
   onClose,
   onSaved
 }) {
-  const mode = !entry.tiInvNo ? "ti" : "pi";
+  const mode = !(entry.tiInvNo || entry.tiLink) ? "ti" : "pi";
   const [form, setForm] = useState(mode === "ti" ? {
     invoiceNo: "",
     date: "",
@@ -1050,14 +1050,14 @@ function MasterLedger({
     rel: "noreferrer",
     title: "TI source",
     className: "text-slate-400 transition-colors hover:text-emerald-600"
-  }, "TI↗"), !r.tiInvNo && /*#__PURE__*/React.createElement("button", {
+  }, "TI↗"), !(r.tiInvNo || r.tiLink) && /*#__PURE__*/React.createElement("button", {
     onClick: () => setPanelFor(r.id),
     className: "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-transform hover:scale-[1.03] hover:bg-blue-50",
     style: {
       borderColor: BRAND,
       color: BRAND
     }
-  }, "+ Add TI"), !r.piFile && /*#__PURE__*/React.createElement("button", {
+  }, "+ Add TI"), !(r.piFile || r.piLink) && /*#__PURE__*/React.createElement("button", {
     onClick: () => setPanelFor(r.id),
     className: "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-transform hover:scale-[1.03] hover:bg-blue-50",
     style: {
@@ -1088,7 +1088,7 @@ function EndorsementsTab({
   refresh
 }) {
   const [sub, setSub] = useState("ledger");
-  const unmatchedCount = entries.filter(e => !e.tiInvNo || !e.piFile).length;
+  const unmatchedCount = entries.filter(e => !(e.tiInvNo || e.tiLink) || !(e.piFile || e.piLink)).length;
   const subTabs = [{
     id: "ledger",
     label: "Master Ledger"
@@ -1330,8 +1330,8 @@ function UnmatchedInvoices({
 }) {
   const [panelFor, setPanelFor] = useState(null);
   const enriched = useMemo(() => entries.map(enrich), [entries]);
-  const piOnly = enriched.filter(r => r.piFile && !r.tiInvNo);
-  const tiOnly = enriched.filter(r => !r.piFile && r.tiInvNo);
+  const piOnly = enriched.filter(r => (r.piFile || r.piLink) && !(r.tiInvNo || r.tiLink));
+  const tiOnly = enriched.filter(r => !(r.piFile || r.piLink) && (r.tiInvNo || r.tiLink));
   const active = panelFor ? enriched.find(e => e.id === panelFor) : null;
   function ActionTable({
     title,
