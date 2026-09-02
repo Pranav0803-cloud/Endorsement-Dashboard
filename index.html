@@ -2596,6 +2596,7 @@ function App() {
   const [placements, setPlacements] = useState([]);
   const [placementsHeaderMap, setPlacementsHeaderMap] = useState({});
   const [loading, setLoading] = useState(true);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [error, setError] = useState(null);
   async function load() {
     setLoading(true);
@@ -2610,6 +2611,7 @@ function App() {
       const placementsRaw = data.placements || [];
       setPlacementsHeaderMap(buildPlacementHeaderMap(placementsRaw));
       setPlacements(placementsRaw.map(cleanPlacementRow));
+      setHasLoadedOnce(true);
     } catch (e) {
       setError(String(e.message || e));
     } finally {
@@ -2658,7 +2660,7 @@ function App() {
     } : {
       color: "#64748b"
     }
-  }, t.label))), loading ? /*#__PURE__*/React.createElement("div", {
+  }, t.label))), !hasLoadedOnce ? /*#__PURE__*/React.createElement("div", {
     className: "py-20 text-center text-slate-400"
   }, "Loading sheet data…") : /*#__PURE__*/React.createElement("main", null, tab === "endorsements" && /*#__PURE__*/React.createElement(EndorsementsTab, {
     entries: entries,
