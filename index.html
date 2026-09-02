@@ -1383,8 +1383,8 @@ function UnmatchedInvoices({
   const [panelFor, setPanelFor] = useState(null);
   const [showBulkModal, setShowBulkModal] = useState(false);
   const enriched = useMemo(() => entries.map(enrich), [entries]);
-  const piOnly = enriched.filter(r => (r.piFile || r.piLink) && !(r.tiInvNo || r.tiLink));
-  const tiOnly = enriched.filter(r => !(r.piFile || r.piLink) && (r.tiInvNo || r.tiLink));
+  const piOnly = enriched.filter(r => r.invoiceType === "Proforma Invoice");
+  const tiOnly = enriched.filter(r => r.invoiceType === "Tax Invoice");
   const active = panelFor ? enriched.find(e => e.id === panelFor) : null;
 
   async function handleBulkConfirm() {
