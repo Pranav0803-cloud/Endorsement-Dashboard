@@ -1323,16 +1323,77 @@ function OperationsFunnel({
 /* =====================================================================
    8. UNMATCHED INVOICES
    ===================================================================== */
+function BulkCompleteModal({
+  rows,
+  onClose,
+  onConfirm
+}) {
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(null);
+  const total = rows.reduce((s, r) => s + (r.tiTotal || r.piAmount || 0), 0);
+  async function submit() {
+    setSaving(true);
+    setErr(null);
+    try {
+      await onConfirm();
+    } catch (e) {
+      setErr(String(e.message || e));
+      setSaving(false);
+    }
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4",
+    onClick: saving ? undefined : onClose
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl",
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "text-sm font-semibold text-slate-900"
+  }, "Mark ", rows.length, " record", rows.length > 1 ? "s" : "", " as completed"), /*#__PURE__*/React.createElement("p", {
+    className: "mt-2 text-xs text-slate-500"
+  }, "These have a Tax Invoice but no Proforma on file. This will move all ", rows.length, " into the Master Ledger as settled, treating the payment as already collected. No Proforma document will be added — the PI file field will be labeled \"No PI — Payment Already Collected\" so it's clear later why it's blank."), /*#__PURE__*/React.createElement("div", {
+    className: "mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800"
+  }, "Total value being added to Pipeline: ", /*#__PURE__*/React.createElement("span", {
+    className: "font-semibold"
+  }, inr(total))), /*#__PURE__*/React.createElement("p", {
+    className: "mt-3 text-xs font-medium text-rose-600"
+  }, "This writes directly to the sheet and can't be undone automatically. Double check before confirming."), err && /*#__PURE__*/React.createElement("p", {
+    className: "mt-2 text-xs text-rose-600"
+  }, err), /*#__PURE__*/React.createElement("div", {
+    className: "mt-5 flex justify-end gap-2"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: onClose,
+    disabled: saving,
+    className: "rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 disabled:opacity-50"
+  }, "Cancel"), /*#__PURE__*/React.createElement("button", {
+    onClick: submit,
+    disabled: saving,
+    className: "rounded-lg px-3 py-2 text-sm font-semibold text-white disabled:opacity-50",
+    style: {
+      backgroundColor: BRAND
+    }
+  }, saving ? "Applying…" : `Confirm — mark ${rows.length} as completed`))));
+}
+
 function UnmatchedInvoices({
   entries,
   refresh,
   rawUnmatched
 }) {
   const [panelFor, setPanelFor] = useState(null);
+  const [showBulkModal, setShowBulkModal] = useState(false);
   const enriched = useMemo(() => entries.map(enrich), [entries]);
   const piOnly = enriched.filter(r => (r.piFile || r.piLink) && !(r.tiInvNo || r.tiLink));
   const tiOnly = enriched.filter(r => !(r.piFile || r.piLink) && (r.tiInvNo || r.tiLink));
   const active = panelFor ? enriched.find(e => e.id === panelFor) : null;
+
+  async function handleBulkConfirm() {
+    await apiPost("bulkCompleteNoPI", { rows: tiOnly.map(r => r.row) });
+    setShowBulkModal(false);
+    refresh();
+    showToast(`Marked ${tiOnly.length} record${tiOnly.length > 1 ? "s" : ""} as completed.`);
+  }
+
   function ActionTable({
     title,
     rows,
@@ -1346,7 +1407,7 @@ function UnmatchedInvoices({
       totalPages,
       pageRows
     } = usePagedRows(rows, 50);
-    return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h3", {
+    return /*#__PURE__*/React.createElement("div", null, title && /*#__PURE__*/React.createElement("h3", {
       className: "mb-3 text-sm font-semibold text-slate-800"
     }, title, " (", rows.length, ")"), /*#__PURE__*/React.createElement("div", {
       className: "overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm"
@@ -1401,6 +1462,10 @@ function UnmatchedInvoices({
     entry: active,
     onClose: () => setPanelFor(null),
     onSaved: refresh
+  }), showBulkModal && /*#__PURE__*/React.createElement(BulkCompleteModal, {
+    rows: tiOnly,
+    onClose: () => setShowBulkModal(false),
+    onConfirm: handleBulkConfirm
   }), /*#__PURE__*/React.createElement(SuggestedMatches, {
     rawUnmatched: rawUnmatched,
     refresh: refresh
@@ -1410,11 +1475,18 @@ function UnmatchedInvoices({
     title: "Proforma Invoices missing a Tax Invoice",
     rows: piOnly,
     ctaLabel: "+ Add TI"
-  }), /*#__PURE__*/React.createElement(ActionTable, {
-    title: "Tax Invoices missing a Proforma Invoice",
+  }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "mb-3 flex flex-wrap items-center justify-between gap-2"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "text-sm font-semibold text-slate-800"
+  }, "Tax Invoices missing a Proforma Invoice (", tiOnly.length, ")"), tiOnly.length > 0 && /*#__PURE__*/React.createElement("button", {
+    onClick: () => setShowBulkModal(true),
+    className: "rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition-transform hover:scale-[1.02] hover:bg-emerald-100"
+  }, "Mark all ", tiOnly.length, " as completed — payment received, no PI")), /*#__PURE__*/React.createElement(ActionTable, {
+    title: "",
     rows: tiOnly,
     ctaLabel: "+ Add PI"
-  }));
+  })));
 }
 
 /* =====================================================================
