@@ -1981,6 +1981,7 @@ function AddPlacementModal({
       setSaving(false);
     }
   }
+  const [customMode, setCustomMode] = useState({});
   const selectField = (label, key, options) => /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: labelCls
   }, label), /*#__PURE__*/React.createElement("select", {
@@ -1993,6 +1994,51 @@ function AddPlacementModal({
     key: o,
     value: o
   }, o))));
+  const selectOrCustomField = (label, key, options) => {
+    const isCustom = customMode[key];
+    if (isCustom) {
+      return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+        className: labelCls
+      }, label), /*#__PURE__*/React.createElement("div", {
+        className: "flex gap-1.5"
+      }, /*#__PURE__*/React.createElement("input", {
+        className: inputCls,
+        value: form[key],
+        onChange: set(key),
+        placeholder: `New ${label.toLowerCase()} name`,
+        autoFocus: true
+      }), /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        onClick: () => {
+          setCustomMode({ ...customMode, [key]: false });
+          setForm({ ...form, [key]: "" });
+        },
+        className: "shrink-0 rounded-lg border border-slate-200 px-2 text-xs text-slate-500 hover:bg-slate-50",
+        title: "Back to dropdown"
+      }, "\u2715")));
+    }
+    return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+      className: labelCls
+    }, label), /*#__PURE__*/React.createElement("select", {
+      className: inputCls,
+      value: form[key],
+      onChange: e => {
+        if (e.target.value === "__custom__") {
+          setCustomMode({ ...customMode, [key]: true });
+          setForm({ ...form, [key]: "" });
+        } else {
+          set(key)(e);
+        }
+      }
+    }, /*#__PURE__*/React.createElement("option", {
+      value: ""
+    }, "—"), options.map(o => /*#__PURE__*/React.createElement("option", {
+      key: o,
+      value: o
+    }, o)), /*#__PURE__*/React.createElement("option", {
+      value: "__custom__"
+    }, "+ Add new\u2026")));
+  };
   const textField = (label, key, placeholder) => /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: labelCls
   }, label), /*#__PURE__*/React.createElement("input", {
@@ -2016,7 +2062,7 @@ function AddPlacementModal({
     className: "text-slate-400 hover:text-slate-600"
   }, "✕")), /*#__PURE__*/React.createElement("div", {
     className: "grid grid-cols-2 gap-3"
-  }, textField("Organisation Name *", "Organisation Name"), selectField("Policy Type", "Policy Type", POLICY_TYPE_OPTIONS), textField("Email Subject Line", "Email Subject Line"), selectField("Insurer", "Insurer", INSURER_OPTIONS), selectField("Broker", "Broker", BROKER_OPTIONS), selectField("Data flow", "Data flow", DATA_FLOW_OPTIONS), selectField("HR dashboard", "HR dashboard", HR_DASHBOARD_OPTIONS), selectField("Limits", "Limits", LIMITS_OPTIONS), selectField("Master policy whitelisted", "Master policy whitelisted", MASTER_POLICY_OPTIONS), selectField("Make policy active", "Make policy active", MAKE_POLICY_ACTIVE_OPTIONS), selectField("Policy Placement (Insurer)", "Policy Placement(Insurer)", POLICY_PLACEMENT_OPTIONS), selectField("Onboarding session", "Onboarding session", ONBOARDING_SESSION_OPTIONS), selectField("Welcome emailers", "Welcome emailers", WELCOME_EMAILERS_OPTIONS), textField("CD balance on Issuance", "CD balance on Issuance"), textField("Date of documents shared", "Date of documents shared", "DD/MM/YYYY"), textField("Policy start date", "Policy start date", "DD/MM/YYYY"), selectField("Month of activation", "Month of activation", MONTH_OPTIONS), selectField("Status", "Status", STATUS_OPTIONS), textField("ETA to close loop", "ETA to close loop from broker/sales"), textField("No. of email f/u", "No. of email f/u"), textField("Call f/u", "Call f/u", "e.g. 17 Jun 2026 with Nidhi"), /*#__PURE__*/React.createElement("div", {
+  }, textField("Organisation Name *", "Organisation Name"), selectField("Policy Type", "Policy Type", POLICY_TYPE_OPTIONS), textField("Email Subject Line", "Email Subject Line"), selectOrCustomField("Insurer", "Insurer", INSURER_OPTIONS), selectOrCustomField("Broker", "Broker", BROKER_OPTIONS), selectField("Data flow", "Data flow", DATA_FLOW_OPTIONS), selectField("HR dashboard", "HR dashboard", HR_DASHBOARD_OPTIONS), selectField("Limits", "Limits", LIMITS_OPTIONS), selectField("Master policy whitelisted", "Master policy whitelisted", MASTER_POLICY_OPTIONS), selectField("Make policy active", "Make policy active", MAKE_POLICY_ACTIVE_OPTIONS), selectField("Policy Placement (Insurer)", "Policy Placement(Insurer)", POLICY_PLACEMENT_OPTIONS), selectField("Onboarding session", "Onboarding session", ONBOARDING_SESSION_OPTIONS), selectField("Welcome emailers", "Welcome emailers", WELCOME_EMAILERS_OPTIONS), textField("CD balance on Issuance", "CD balance on Issuance"), textField("Date of documents shared", "Date of documents shared", "DD/MM/YYYY"), textField("Policy start date", "Policy start date", "DD/MM/YYYY"), selectField("Month of activation", "Month of activation", MONTH_OPTIONS), selectField("Status", "Status", STATUS_OPTIONS), textField("ETA to close loop", "ETA to close loop from broker/sales"), textField("No. of email f/u", "No. of email f/u"), textField("Call f/u", "Call f/u", "e.g. 17 Jun 2026 with Nidhi"), /*#__PURE__*/React.createElement("div", {
     className: "col-span-2"
   }, textField("Relevant Slack thread / Email link", "Relevant slack thread links/ Email (If applicable)")), /*#__PURE__*/React.createElement("div", {
     className: "col-span-2"
