@@ -1744,13 +1744,14 @@ const INSURER_OPTIONS = ["Even", "Digit", "ABHI", "Zuno", "Magma", "Care"];
 const BROKER_OPTIONS = ["Healthysure", "Even", "Prudent", "Pazcare", "Lockton", "Sriyah", "Howden", "AON", "Mahindra", "Mutual Global", "Marsh"];
 const DATA_FLOW_OPTIONS = ["Email", "B2B payments channel"];
 const HR_DASHBOARD_OPTIONS = ["Completed", "Non Tech issue", "Tech issue", "SFTP error", "Discrepency", "On hold"];
-const MASTER_POLICY_OPTIONS = ["Completed", "Completed / NA", "Awaiting details", "NA"];
+const LIMITS_OPTIONS = ["Completed", "Discrepency"];
+const MASTER_POLICY_OPTIONS = ["Awaiting details", "Completed", "Following up", "NA"];
 const MAKE_POLICY_ACTIVE_OPTIONS = ["Completed", "On hold", "Non Tech issue", "Tech issue", "SFTP error", "Discrepency"];
-const POLICY_PLACEMENT_OPTIONS = ["Completed", "Awaiting details", "NA"];
-const ONBOARDING_SESSION_OPTIONS = ["Completed", "Sent", "NA"];
-const WELCOME_EMAILERS_OPTIONS = ["Sent", "Completed", "NA"];
+const POLICY_PLACEMENT_OPTIONS = ["Awaiting details", "Following up", "NA", "Completed", "Yet to place"];
+const ONBOARDING_SESSION_OPTIONS = ["Completed", "Upcoming"];
+const WELCOME_EMAILERS_OPTIONS = ["Sent", "Not Required"];
 const MONTH_OPTIONS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-const STATUS_OPTIONS = ["Policy issued", "In Progress - Policy placement", "Under issuance", "On Hold - Digit", "Completed - Make policy active pending"];
+const STATUS_OPTIONS = ["Policy issued", "Under issuance", "On Hold - Digit", "In Progress - Policy placement", "Closed - unresolved (Digit)", "Completed - Make policy active pending"];
 
 /* Your sheet's headers have trailing spaces on some columns (e.g. "Status ",
    "Policy Type "). These helpers normalize keys for reading/display, and
@@ -1875,6 +1876,48 @@ function EditableText({
   });
 }
 
+function EditableDate({
+  value,
+  onSave
+}) {
+  function toISO(v) {
+    if (!v) return "";
+    const dmy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(String(v).trim());
+    if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
+    const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v).trim());
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    return "";
+  }
+  function toDMY(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+    if (!m) return iso;
+    return `${m[3]}/${m[2]}/${m[1]}`;
+  }
+  const [iso, setIso] = useState(toISO(value));
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    setIso(toISO(value));
+  }, [value]);
+  async function handleChange(e) {
+    const newIso = e.target.value;
+    setIso(newIso);
+    if (!newIso) return;
+    setSaving(true);
+    try {
+      await onSave(toDMY(newIso));
+    } finally {
+      setSaving(false);
+    }
+  }
+  return /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: iso,
+    onChange: handleChange,
+    disabled: saving,
+    className: "w-full min-w-[130px] rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs outline-none focus:border-blue-500 disabled:opacity-50"
+  });
+}
+
 /* =====================================================================
    TAB 1 — MASTER PLACEMENT LEDGER
    ===================================================================== */
@@ -1973,7 +2016,7 @@ function AddPlacementModal({
     className: "text-slate-400 hover:text-slate-600"
   }, "✕")), /*#__PURE__*/React.createElement("div", {
     className: "grid grid-cols-2 gap-3"
-  }, textField("Organisation Name *", "Organisation Name"), selectField("Policy Type", "Policy Type", POLICY_TYPE_OPTIONS), textField("Email Subject Line", "Email Subject Line"), selectField("Insurer", "Insurer", INSURER_OPTIONS), selectField("Broker", "Broker", BROKER_OPTIONS), selectField("Data flow", "Data flow", DATA_FLOW_OPTIONS), selectField("HR dashboard", "HR dashboard", HR_DASHBOARD_OPTIONS), textField("Limits", "Limits"), selectField("Master policy whitelisted", "Master policy whitelisted", MASTER_POLICY_OPTIONS), selectField("Make policy active", "Make policy active", MAKE_POLICY_ACTIVE_OPTIONS), selectField("Policy Placement (Insurer)", "Policy Placement(Insurer)", POLICY_PLACEMENT_OPTIONS), selectField("Onboarding session", "Onboarding session", ONBOARDING_SESSION_OPTIONS), selectField("Welcome emailers", "Welcome emailers", WELCOME_EMAILERS_OPTIONS), textField("CD balance on Issuance", "CD balance on Issuance"), textField("Date of documents shared", "Date of documents shared", "YYYY-MM-DD"), textField("Policy start date", "Policy start date", "YYYY-MM-DD"), selectField("Month of activation", "Month of activation", MONTH_OPTIONS), selectField("Status", "Status", STATUS_OPTIONS), textField("ETA to close loop", "ETA to close loop from broker/sales"), textField("No. of email f/u", "No. of email f/u"), textField("Call f/u", "Call f/u", "e.g. 17 Jun 2026 with Nidhi"), /*#__PURE__*/React.createElement("div", {
+  }, textField("Organisation Name *", "Organisation Name"), selectField("Policy Type", "Policy Type", POLICY_TYPE_OPTIONS), textField("Email Subject Line", "Email Subject Line"), selectField("Insurer", "Insurer", INSURER_OPTIONS), selectField("Broker", "Broker", BROKER_OPTIONS), selectField("Data flow", "Data flow", DATA_FLOW_OPTIONS), selectField("HR dashboard", "HR dashboard", HR_DASHBOARD_OPTIONS), selectField("Limits", "Limits", LIMITS_OPTIONS), selectField("Master policy whitelisted", "Master policy whitelisted", MASTER_POLICY_OPTIONS), selectField("Make policy active", "Make policy active", MAKE_POLICY_ACTIVE_OPTIONS), selectField("Policy Placement (Insurer)", "Policy Placement(Insurer)", POLICY_PLACEMENT_OPTIONS), selectField("Onboarding session", "Onboarding session", ONBOARDING_SESSION_OPTIONS), selectField("Welcome emailers", "Welcome emailers", WELCOME_EMAILERS_OPTIONS), textField("CD balance on Issuance", "CD balance on Issuance"), textField("Date of documents shared", "Date of documents shared", "DD/MM/YYYY"), textField("Policy start date", "Policy start date", "DD/MM/YYYY"), selectField("Month of activation", "Month of activation", MONTH_OPTIONS), selectField("Status", "Status", STATUS_OPTIONS), textField("ETA to close loop", "ETA to close loop from broker/sales"), textField("No. of email f/u", "No. of email f/u"), textField("Call f/u", "Call f/u", "e.g. 17 Jun 2026 with Nidhi"), /*#__PURE__*/React.createElement("div", {
     className: "col-span-2"
   }, textField("Relevant Slack thread / Email link", "Relevant slack thread links/ Email (If applicable)")), /*#__PURE__*/React.createElement("div", {
     className: "col-span-2"
@@ -2253,8 +2296,9 @@ function PlacementsLedger({
     })
   })), /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2"
-  }, /*#__PURE__*/React.createElement(EditableText, {
+  }, /*#__PURE__*/React.createElement(EditableSelect, {
     value: p["Limits"],
+    options: LIMITS_OPTIONS,
     onSave: v => saveCell(p._row, {
       "Limits": v
     })
@@ -2308,8 +2352,13 @@ function PlacementsLedger({
   })), /*#__PURE__*/React.createElement("td", {
     className: "whitespace-nowrap px-3 py-2 text-slate-500"
   }, p["Date of documents shared"] || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "whitespace-nowrap px-3 py-2 text-slate-500"
-  }, p["Policy start date"] || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, /*#__PURE__*/React.createElement(EditableDate, {
+    value: p["Policy start date"],
+    onSave: v => saveCell(p._row, {
+      "Policy start date": v
+    })
+  })), /*#__PURE__*/React.createElement("td", {
     className: "whitespace-nowrap px-3 py-2 text-slate-500"
   }, p["Month of activation"] || "—"), /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2"
