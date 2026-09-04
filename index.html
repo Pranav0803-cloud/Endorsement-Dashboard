@@ -1832,6 +1832,53 @@ function EditableSelect({
   }, o)));
 }
 
+function EditableText({
+  value,
+  onSave,
+  multiline
+}) {
+  const [text, setText] = useState(value || "");
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    setText(value || "");
+  }, [value]);
+  async function commit() {
+    if (text === (value || "")) return;
+    setSaving(true);
+    try {
+      await onSave(text);
+    } finally {
+      setSaving(false);
+    }
+  }
+  const cls = "w-full min-w-[120px] rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs outline-none focus:border-blue-500 disabled:opacity-50";
+  if (multiline) {
+    return /*#__PURE__*/React.createElement("textarea", {
+      value: text,
+      onChange: e => setText(e.target.value),
+      onBlur: commit,
+      disabled: saving,
+      rows: 2,
+      className: `${cls} min-w-[220px] resize-y whitespace-pre-wrap`
+    });
+  }
+  return /*#__PURE__*/React.createElement("input", {
+    type: "text",
+    value: text,
+    onChange: e => setText(e.target.value),
+    onBlur: commit,
+    onKeyDown: e => {
+      if (e.key === "Enter") e.currentTarget.blur();
+    },
+    disabled: saving,
+    className: cls
+  });
+}
+
+/* =====================================================================
+   TAB 1 — MASTER PLACEMENT LEDGER
+   ===================================================================== */
+
 /* =====================================================================
    ADD NEW PLACEMENT MODAL
    ===================================================================== */
@@ -2050,7 +2097,7 @@ function PlacementsLedger({
   }, "Export CSV"))), /*#__PURE__*/React.createElement("div", {
     className: "overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm"
   }, /*#__PURE__*/React.createElement("table", {
-    className: "min-w-[2600px] w-full text-sm"
+    className: "min-w-[2900px] w-full text-sm"
   }, /*#__PURE__*/React.createElement("thead", {
     className: "bg-slate-50"
   }, /*#__PURE__*/React.createElement("tr", {
@@ -2169,17 +2216,15 @@ function PlacementsLedger({
     className: "whitespace-nowrap px-3 py-2"
   }, "Remarks"))), /*#__PURE__*/React.createElement("tbody", null, pageRows.map(p => /*#__PURE__*/React.createElement("tr", {
     key: p._row,
-    className: "border-b border-slate-100 odd:bg-slate-50/50 transition-colors hover:bg-blue-50/40"
+    className: "border-b border-slate-100 odd:bg-slate-50/50 transition-colors hover:bg-blue-50/40 align-top"
   }, /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2 text-slate-500"
   }, p["Sl No"]), /*#__PURE__*/React.createElement("td", {
-    className: "max-w-[200px] truncate px-3 py-2 font-medium text-slate-800",
-    title: p["Organisation Name"]
+    className: "px-3 py-2 min-w-[180px] whitespace-normal break-words font-medium text-slate-800"
   }, p["Organisation Name"]), /*#__PURE__*/React.createElement("td", {
     className: "whitespace-nowrap px-3 py-2 text-slate-600"
   }, p["Policy Type"] || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "max-w-[220px] truncate px-3 py-2 text-slate-500",
-    title: p["Email Subject Line"]
+    className: "px-3 py-2 min-w-[200px] whitespace-normal break-words text-slate-500"
   }, p["Email Subject Line"] || "—"), /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2"
   }, /*#__PURE__*/React.createElement(EditableSelect, {
@@ -2207,10 +2252,21 @@ function PlacementsLedger({
       "HR dashboard": v
     })
   })), /*#__PURE__*/React.createElement("td", {
-    className: "whitespace-nowrap px-3 py-2 text-slate-600"
-  }, p["Limits"] || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "whitespace-nowrap px-3 py-2 text-slate-600"
-  }, p["Master policy whitelisted"] || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, /*#__PURE__*/React.createElement(EditableText, {
+    value: p["Limits"],
+    onSave: v => saveCell(p._row, {
+      "Limits": v
+    })
+  })), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, /*#__PURE__*/React.createElement(EditableSelect, {
+    value: p["Master policy whitelisted"],
+    options: MASTER_POLICY_OPTIONS,
+    onSave: v => saveCell(p._row, {
+      "Master policy whitelisted": v
+    })
+  })), /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2"
   }, /*#__PURE__*/React.createElement(EditableSelect, {
     value: p["Make policy active"],
@@ -2219,14 +2275,37 @@ function PlacementsLedger({
       "Make policy active": v
     })
   })), /*#__PURE__*/React.createElement("td", {
-    className: "whitespace-nowrap px-3 py-2 text-slate-600"
-  }, p["Policy Placement(Insurer)"] || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "whitespace-nowrap px-3 py-2 text-slate-600"
-  }, p["Onboarding session"] || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "whitespace-nowrap px-3 py-2 text-slate-600"
-  }, p["Welcome emailers"] || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "whitespace-nowrap px-3 py-2 text-slate-600"
-  }, p["CD balance on Issuance"] || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, /*#__PURE__*/React.createElement(EditableSelect, {
+    value: p["Policy Placement(Insurer)"],
+    options: POLICY_PLACEMENT_OPTIONS,
+    onSave: v => saveCell(p._row, {
+      "Policy Placement(Insurer)": v
+    })
+  })), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, /*#__PURE__*/React.createElement(EditableSelect, {
+    value: p["Onboarding session"],
+    options: ONBOARDING_SESSION_OPTIONS,
+    onSave: v => saveCell(p._row, {
+      "Onboarding session": v
+    })
+  })), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, /*#__PURE__*/React.createElement(EditableSelect, {
+    value: p["Welcome emailers"],
+    options: WELCOME_EMAILERS_OPTIONS,
+    onSave: v => saveCell(p._row, {
+      "Welcome emailers": v
+    })
+  })), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, /*#__PURE__*/React.createElement(EditableText, {
+    value: p["CD balance on Issuance"],
+    onSave: v => saveCell(p._row, {
+      "CD balance on Issuance": v
+    })
+  })), /*#__PURE__*/React.createElement("td", {
     className: "whitespace-nowrap px-3 py-2 text-slate-500"
   }, p["Date of documents shared"] || "—"), /*#__PURE__*/React.createElement("td", {
     className: "whitespace-nowrap px-3 py-2 text-slate-500"
@@ -2241,9 +2320,14 @@ function PlacementsLedger({
       "Status": v
     })
   })), /*#__PURE__*/React.createElement("td", {
-    className: "max-w-[260px] truncate px-3 py-2 text-slate-500",
-    title: p["Remarks"]
-  }, p["Remarks"] || "—"))), pageRows.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, /*#__PURE__*/React.createElement(EditableText, {
+    value: p["Remarks"],
+    onSave: v => saveCell(p._row, {
+      "Remarks": v
+    }),
+    multiline: true
+  })))), pageRows.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
     colSpan: 20,
     className: "px-3 py-8 text-center text-slate-400"
   }, "No records match."))))), /*#__PURE__*/React.createElement(PaginationBar, {
@@ -2256,6 +2340,7 @@ function PlacementsLedger({
     shownCount: pageRows.length
   }));
 }
+
 
 
 /* =====================================================================
@@ -2396,6 +2481,28 @@ function PlacementsBottlenecks({
     const remarks = String(p["Remarks"] || "");
     return hr === "SFTP error" || /on hold/i.test(status) || /odd even tool/i.test(remarks);
   });
+  const STATUS_REPORT_VALUES = ["Under issuance", "On Hold - Digit", "In Progress - Policy placement", "Completed - Make policy active pending"];
+  const normalize = s => String(s || "").trim().toLowerCase();
+  const statusReportRows = useMemo(() => placements.filter(p => STATUS_REPORT_VALUES.some(s => normalize(s) === normalize(p["Status"]))), [placements]);
+  const statusCounts = useMemo(() => {
+    const counts = {};
+    STATUS_REPORT_VALUES.forEach(s => counts[s] = 0);
+    statusReportRows.forEach(p => {
+      const match = STATUS_REPORT_VALUES.find(s => normalize(s) === normalize(p["Status"]));
+      if (match) counts[match]++;
+    });
+    return counts;
+  }, [statusReportRows]);
+  const [statusFilter, setStatusFilter] = useState("All");
+  const statusFilteredRows = useMemo(() => statusFilter === "All" ? statusReportRows : statusReportRows.filter(p => normalize(p["Status"]) === normalize(statusFilter)), [statusReportRows, statusFilter]);
+  const {
+    page,
+    setPage,
+    pageSize,
+    setPageSize,
+    totalPages,
+    pageRows
+  } = usePagedRows(statusFilteredRows, 50);
   const byBroker = useMemo(() => {
     const map = {};
     placements.forEach(p => {
@@ -2469,9 +2576,9 @@ function PlacementsBottlenecks({
     className: "px-3 py-2"
   }, "Link"))), /*#__PURE__*/React.createElement("tbody", null, exceptions.map(p => /*#__PURE__*/React.createElement("tr", {
     key: p._row,
-    className: "border-t border-slate-100"
+    className: "border-t border-slate-100 align-top"
   }, /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2 max-w-[200px] truncate"
+    className: "px-3 py-2 min-w-[160px] whitespace-normal break-words"
   }, p["Organisation Name"]), /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2"
   }, p["Insurer"]), /*#__PURE__*/React.createElement("td", {
@@ -2479,7 +2586,7 @@ function PlacementsBottlenecks({
   }, /*#__PURE__*/React.createElement(PlacementPill, {
     label: placementStatusCategory(p)
   })), /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2 max-w-[260px] truncate text-slate-500"
+    className: "px-3 py-2 min-w-[200px] whitespace-normal break-words text-slate-500"
   }, p["Remarks"] || "—"), /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2 text-slate-500"
   }, p["ETA to close loop from broker/sales"] || "—"), /*#__PURE__*/React.createElement("td", {
@@ -2495,12 +2602,86 @@ function PlacementsBottlenecks({
   }, "No exceptions — all clear."))))), /*#__PURE__*/React.createElement("div", {
     className: "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
   }, /*#__PURE__*/React.createElement("h3", {
+    className: "mb-1 text-sm font-semibold text-slate-800"
+  }, "Status Breakdown"), /*#__PURE__*/React.createElement("p", {
+    className: "mb-4 text-xs text-slate-400"
+  }, "Records currently sitting in one of the four in-progress statuses below."), /*#__PURE__*/React.createElement("div", {
+    className: "mb-4 grid grid-cols-2 gap-3 md:grid-cols-4"
+  }, STATUS_REPORT_VALUES.map(s => /*#__PURE__*/React.createElement("button", {
+    key: s,
+    onClick: () => {
+      setStatusFilter(statusFilter === s ? "All" : s);
+      setPage(1);
+    },
+    className: "rounded-2xl border p-3 text-left transition-transform hover:scale-[1.02]",
+    style: statusFilter === s ? {
+      borderColor: BRAND,
+      backgroundColor: "#eaf1ff"
+    } : {
+      borderColor: "#e2e8f0",
+      backgroundColor: "white"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-[11px] uppercase tracking-wide text-slate-400"
+  }, s), /*#__PURE__*/React.createElement("div", {
+    className: "mt-1 text-xl font-semibold text-slate-900"
+  }, statusCounts[s])))), statusFilter !== "All" && /*#__PURE__*/React.createElement("button", {
+    onClick: () => setStatusFilter("All"),
+    className: "mb-3 text-xs font-medium text-blue-600 underline"
+  }, "Clear filter — showing all ", STATUS_REPORT_VALUES.length, " statuses"), /*#__PURE__*/React.createElement("div", {
+    className: "overflow-auto rounded-2xl border border-slate-200"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "w-full min-w-[800px] text-sm"
+  }, /*#__PURE__*/React.createElement("thead", {
+    className: "bg-slate-50"
+  }, /*#__PURE__*/React.createElement("tr", {
+    className: "text-left text-[11px] uppercase text-slate-400"
+  }, /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Organisation"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Insurer"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Broker"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Status"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2"
+  }, "Month"))), /*#__PURE__*/React.createElement("tbody", null, pageRows.map(p => /*#__PURE__*/React.createElement("tr", {
+    key: p._row,
+    className: "border-t border-slate-100 align-top"
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 min-w-[160px] whitespace-normal break-words"
+  }, p["Organisation Name"]), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, p["Insurer"]), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, p["Broker"]), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 whitespace-nowrap"
+  }, p["Status"]), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, p["Month of activation"]))), pageRows.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    colSpan: 5,
+    className: "px-3 py-8 text-center text-slate-400"
+  }, "Nothing in this status."))))), statusFilteredRows.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "mt-2"
+  }, /*#__PURE__*/React.createElement(PaginationBar, {
+    page: page,
+    setPage: setPage,
+    totalPages: totalPages,
+    pageSize: pageSize,
+    setPageSize: setPageSize,
+    totalRows: statusFilteredRows.length,
+    shownCount: pageRows.length
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+  }, /*#__PURE__*/React.createElement("h3", {
     className: "mb-3 text-sm font-semibold text-slate-800"
   }, "Broker & Sales Follow-Up Velocity"), /*#__PURE__*/React.createElement("canvas", {
     ref: brokerRef,
     height: "140"
   })));
 }
+
 
 /* =====================================================================
    TAB 4 — INSURER, BROKER & CHANNEL DISTRIBUTION
