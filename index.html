@@ -2395,7 +2395,6 @@ function PlacementsLedger({
   }, /*#__PURE__*/React.createElement(EditableText, {
     value: p["No. of Onboarding Sessions"],
     type: "number",
-    disabled: !p["Onboarding session"],
     onSave: v => saveCell(p._row, {
       "No. of Onboarding Sessions": v
     })
@@ -2403,7 +2402,6 @@ function PlacementsLedger({
     className: "px-3 py-2"
   }, /*#__PURE__*/React.createElement(EditableDate, {
     value: p["Onboarding Session Date"],
-    disabled: !p["Onboarding session"],
     onSave: v => saveCell(p._row, {
       "Onboarding Session Date": v
     })
