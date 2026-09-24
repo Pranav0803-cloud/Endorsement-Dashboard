@@ -47,6 +47,62 @@ const compact = n => n == null ? "—" : new Intl.NumberFormat("en-IN", {
   notation: "compact",
   maximumFractionDigits: 1
 }).format(n);
+
+/* =====================================================================
+   UNIVERSAL DATE FORMATTER — the sheet has dates in several different
+   formats depending on how each row was entered (2026/06/29,
+   2025-02-06 00:00:00, 29 OCT 2025, 2026/Jan/16, already-correct
+   DD/MM/YYYY, etc). This normalizes any of them to DD/MM/YYYY for
+   display. Returns the original string unchanged if it can't confidently
+   parse it, rather than showing something wrong.
+   ===================================================================== */
+const MONTH_NAMES_ = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+function pad2_(n) {
+  return String(n).padStart(2, "0");
+}
+function monthNameToNum_(name) {
+  const idx = MONTH_NAMES_.indexOf(String(name).slice(0, 3).toLowerCase());
+  return idx === -1 ? null : idx + 1;
+}
+function formatDMY(value) {
+  if (!value) return "";
+  const s = String(value).trim();
+
+  // Already DD/MM/YYYY (or D/M/YYYY)
+  let m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
+  if (m) return `${pad2_(m[1])}/${pad2_(m[2])}/${m[3]}`;
+
+  // YYYY-MM-DD, optionally with a time component
+  m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+
+  // YYYY/MM/DD
+  m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec(s);
+  if (m) return `${pad2_(m[3])}/${pad2_(m[2])}/${m[1]}`;
+
+  // DD MON YYYY  e.g. "29 OCT 2025"
+  m = /^(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})$/.exec(s);
+  if (m) {
+    const mon = monthNameToNum_(m[2]);
+    if (mon) return `${pad2_(m[1])}/${pad2_(mon)}/${m[3]}`;
+  }
+
+  // YYYY/Mon/DD  e.g. "2026/Jan/16"
+  m = /^(\d{4})\/([A-Za-z]{3,})\/(\d{1,2})$/.exec(s);
+  if (m) {
+    const mon = monthNameToNum_(m[2]);
+    if (mon) return `${pad2_(m[3])}/${pad2_(mon)}/${m[1]}`;
+  }
+
+  // Last resort: let the browser try, but only trust it if it round-trips
+  // sensibly (avoids "Jan 5" being misread as some other locale's date).
+  const d = new Date(s);
+  if (!isNaN(d) && s.length >= 8) {
+    return `${pad2_(d.getDate())}/${pad2_(d.getMonth() + 1)}/${d.getFullYear()}`;
+  }
+
+  return s;
+}
 function matchedToLedger(m) {
   return {
     id: "m" + m._row,
@@ -280,7 +336,7 @@ function SuggestedMatches({
       className: `inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${TIER_STYLE[s.tier]}`
     }, TIER_LABEL[s.tier])), /*#__PURE__*/React.createElement("div", {
       className: "mt-0.5 text-xs text-slate-500"
-    }, "PI ", s.pi["Invoice Date"], " · ", inr(sm_amt(s.pi)), " \xA0→\xA0 TI ", s.ti["Invoice Date"], " ·", " ", inr(sm_amt(s.ti)), s.altCount > 0 && /*#__PURE__*/React.createElement("span", {
+    }, "PI ", formatDMY(s.pi["Invoice Date"]), " · ", inr(sm_amt(s.pi)), " \xA0→\xA0 TI ", formatDMY(s.ti["Invoice Date"]), " ·", " ", inr(sm_amt(s.ti)), s.altCount > 0 && /*#__PURE__*/React.createElement("span", {
       className: "ml-2 text-amber-600"
     }, "+", s.altCount, " other possible match", s.altCount > 1 ? "es" : ""))), /*#__PURE__*/React.createElement("div", {
       className: "flex items-center gap-2"
@@ -856,6 +912,13 @@ function MasterLedger({
   const enriched = useMemo(() => entries.map(enrich), [entries]);
   const matchedCount = useMemo(() => enriched.filter(r => r.isFullyMatched).length, [enriched]);
   const partialCount = enriched.length - matchedCount;
+  // Base options plus any custom value someone's already added anywhere in
+  // the data — so a value one person types via "+ Add new…" shows up as a
+  // real pickable option for everyone else too, not just on that one row.
+  const followUpStatusOptions = useMemo(() => {
+    const used = enriched.map(r => r.followUpStatus).filter(Boolean);
+    return [...new Set([...FOLLOW_UP_STATUS_OPTIONS, ...used])];
+  }, [enriched]);
 
   async function saveFollowUpStatus(r, v) {
     try {
@@ -1033,13 +1096,13 @@ function MasterLedger({
     title: r.company
   }, r.company), /*#__PURE__*/React.createElement("td", {
     className: "whitespace-nowrap px-3 py-2 text-slate-500"
-  }, r.piDate || "—"), /*#__PURE__*/React.createElement("td", {
+  }, formatDMY(r.piDate) || "—"), /*#__PURE__*/React.createElement("td", {
     className: "whitespace-nowrap px-3 py-2 tabular-nums text-slate-800"
   }, inr(r.piAmount)), /*#__PURE__*/React.createElement("td", {
     className: "whitespace-nowrap px-3 py-2 text-slate-700"
   }, r.tiInvNo || "—"), /*#__PURE__*/React.createElement("td", {
     className: "whitespace-nowrap px-3 py-2 text-slate-500"
-  }, r.tiDate || "—"), /*#__PURE__*/React.createElement("td", {
+  }, formatDMY(r.tiDate) || "—"), /*#__PURE__*/React.createElement("td", {
     className: "whitespace-nowrap px-3 py-2 tabular-nums text-slate-800"
   }, inr(r.tiTotal)), /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2"
@@ -1059,7 +1122,7 @@ function MasterLedger({
     className: "text-slate-300"
   }, "—") : /*#__PURE__*/React.createElement(EditableSelectWithCustom, {
     value: r.followUpStatus,
-    options: FOLLOW_UP_STATUS_OPTIONS,
+    options: followUpStatusOptions,
     onSave: v => saveFollowUpStatus(r, v)
   })), /*#__PURE__*/React.createElement("td", {
     className: "whitespace-nowrap px-3 py-2"
@@ -1464,7 +1527,7 @@ function UnmatchedInvoices({
       className: "px-3 py-2 max-w-[220px] truncate"
     }, r.company), /*#__PURE__*/React.createElement("td", {
       className: "px-3 py-2 text-slate-500"
-    }, r.tiDate || r.piDate || "—"), /*#__PURE__*/React.createElement("td", {
+    }, formatDMY(r.tiDate || r.piDate) || "—"), /*#__PURE__*/React.createElement("td", {
       className: "px-3 py-2"
     }, inr(r.tiTotal ?? r.piAmount)), /*#__PURE__*/React.createElement("td", {
       className: "px-3 py-2"
@@ -1913,10 +1976,9 @@ function EditableDate({
 }) {
   function toISO(v) {
     if (!v) return "";
-    const dmy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(String(v).trim());
-    if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
-    const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v).trim());
-    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    const dmy = formatDMY(v);
+    const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(dmy);
+    if (m) return `${m[3]}-${m[2]}-${m[1]}`;
     return "";
   }
   function toDMY(iso) {
@@ -2525,7 +2587,7 @@ function PlacementsLedger({
     })
   })), /*#__PURE__*/React.createElement("td", {
     className: "whitespace-nowrap px-3 py-2 text-slate-500"
-  }, p["Date of documents shared"] || "—"), /*#__PURE__*/React.createElement("td", {
+  }, formatDMY(p["Date of documents shared"]) || "—"), /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2"
   }, /*#__PURE__*/React.createElement(EditableDate, {
     value: p["Policy start date"],
@@ -2812,7 +2874,7 @@ function PlacementsBottlenecks({
     className: "px-3 py-2 min-w-[200px] whitespace-normal break-words text-slate-500"
   }, p["Remarks"] || "—"), /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2 text-slate-500"
-  }, p["ETA to close loop from broker/sales"] || "—"), /*#__PURE__*/React.createElement("td", {
+  }, formatDMY(p["ETA to close loop from broker/sales"]) || "—"), /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2"
   }, p["Relevant slack thread links/ Email (If applicable)"] && /*#__PURE__*/React.createElement("a", {
     href: p["Relevant slack thread links/ Email (If applicable)"],
