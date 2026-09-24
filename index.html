@@ -858,13 +858,17 @@ function MasterLedger({
   const partialCount = enriched.length - matchedCount;
 
   async function saveFollowUpStatus(r, v) {
-    await apiPost("updateRow", {
-      sheet: r.sheet === "matched" ? "MATCHED INVOICES" : "UNMATCHED INVOICES",
-      row: r.row,
-      values: { "Status": v }
-    });
-    refresh();
-    showToast("Saved — status updated on the sheet.");
+    try {
+      await apiPost("updateRow", {
+        sheet: r.sheet === "matched" ? "MATCHED INVOICES" : "UNMATCHED INVOICES",
+        row: r.row,
+        values: { "Status": v }
+      });
+      refresh();
+      showToast("Saved — status updated on the sheet.");
+    } catch (e) {
+      showToast(String(e.message || e), "error");
+    }
   }
   const filtered = useMemo(() => {
     let rows = enriched.filter(r => {
@@ -1051,7 +1055,9 @@ function MasterLedger({
     label: r.complianceFlag
   })), /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2"
-  }, /*#__PURE__*/React.createElement(EditableSelectWithCustom, {
+  }, r.isFullyMatched ? /*#__PURE__*/React.createElement("span", {
+    className: "text-slate-300"
+  }, "—") : /*#__PURE__*/React.createElement(EditableSelectWithCustom, {
     value: r.followUpStatus,
     options: FOLLOW_UP_STATUS_OPTIONS,
     onSave: v => saveFollowUpStatus(r, v)
