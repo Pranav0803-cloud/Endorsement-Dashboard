@@ -67,7 +67,8 @@ function matchedToLedger(m) {
     tiGst: sum(sum(m["TI - CGST Amt (₹)"], m["TI - SGST Amt (₹)"]), m["TI - IGST Amt (₹)"]),
     tiTotal: num(m["TI - Total incl. GST (₹)"]),
     tiMonth: m["TI - Month"] || null,
-    tiLink: m["TI - Source Link"] || null
+    tiLink: m["TI - Source Link"] || null,
+    followUpStatus: m["Status"] || null
   };
 }
 function unmatchedToLedger(u) {
@@ -78,7 +79,8 @@ function unmatchedToLedger(u) {
     sheet: "unmatched",
     invoiceType: u["Invoice Type"],
     corpId: u["corporate_id"],
-    company: u["Bill To (Company)"] || "(no name)"
+    company: u["Bill To (Company)"] || "(no name)",
+    followUpStatus: u["Status"] || null
   };
   if (isPI) {
     return {
@@ -351,6 +353,7 @@ async function apiPost(action, payload) {
 /* =====================================================================
    3. SHARED UI PIECES
    ===================================================================== */
+const FOLLOW_UP_STATUS_OPTIONS = ["Payment done - Awaiting TI", "No Payment Received"];
 const STATUS_STYLES = {
   Completed: "bg-emerald-50 text-emerald-700 border-emerald-200",
   "Proforma Issued": "bg-blue-50 text-blue-700 border-blue-200",
@@ -853,6 +856,16 @@ function MasterLedger({
   const enriched = useMemo(() => entries.map(enrich), [entries]);
   const matchedCount = useMemo(() => enriched.filter(r => r.isFullyMatched).length, [enriched]);
   const partialCount = enriched.length - matchedCount;
+
+  async function saveFollowUpStatus(r, v) {
+    await apiPost("updateRow", {
+      sheet: r.sheet === "matched" ? "MATCHED INVOICES" : "UNMATCHED INVOICES",
+      row: r.row,
+      values: { "Status": v }
+    });
+    refresh();
+    showToast("Saved — status updated on the sheet.");
+  }
   const filtered = useMemo(() => {
     let rows = enriched.filter(r => {
       const hay = `${r.company} ${r.corpId || ""} ${r.tiInvNo || ""} ${r.piFile || ""}`.toLowerCase();
@@ -884,8 +897,8 @@ function MasterLedger({
     }
   }
   function exportCSV() {
-    const headers = ["Corporate ID", "Company", "PI File", "PI Date", "PI Amount", "PI Due Date", "TI Invoice No", "TI Date", "Taxable Value", "GST Total", "Gross Invoiced", "PI vs TI Variance", "Conversion Status", "Payment Status", "Conversion Lag (days)", "Compliance Flag", "PI Source Link", "TI Source Link"];
-    const lines = filtered.map(r => [r.corpId, r.company, r.piFile || "", r.piDate || "", r.piAmount ?? "", r.piDue || "", r.tiInvNo || "", r.tiDate || "", r.tiTaxable ?? "", r.tiGst ?? "", r.tiTotal ?? "", r.variance ?? "", r.conversionStatus, r.paymentStatus, r.lag ?? "", r.complianceFlag, r.piLink || "", r.tiLink || ""].map(v => `"${String(v).replace(/"/g, '""')}"`).join(","));
+    const headers = ["Corporate ID", "Company", "PI File", "PI Date", "PI Amount", "PI Due Date", "TI Invoice No", "TI Date", "Taxable Value", "GST Total", "Gross Invoiced", "PI vs TI Variance", "Conversion Status", "Payment Status", "Follow-up Status", "Conversion Lag (days)", "Compliance Flag", "PI Source Link", "TI Source Link"];
+    const lines = filtered.map(r => [r.corpId, r.company, r.piFile || "", r.piDate || "", r.piAmount ?? "", r.piDue || "", r.tiInvNo || "", r.tiDate || "", r.tiTaxable ?? "", r.tiGst ?? "", r.tiTotal ?? "", r.variance ?? "", r.conversionStatus, r.paymentStatus, r.followUpStatus || "", r.lag ?? "", r.complianceFlag, r.piLink || "", r.tiLink || ""].map(v => `"${String(v).replace(/"/g, '""')}"`).join(","));
     const csv = [headers.join(","), ...lines].join("\n");
     const blob = new Blob([csv], {
       type: "text/csv;charset=utf-8;"
@@ -967,7 +980,7 @@ function MasterLedger({
   }, "Export CSV"))), /*#__PURE__*/React.createElement("div", {
     className: "overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm"
   }, /*#__PURE__*/React.createElement("table", {
-    className: "min-w-[1120px] w-full border-collapse text-sm"
+    className: "min-w-[1300px] w-full border-collapse text-sm"
   }, /*#__PURE__*/React.createElement("thead", {
     className: "sticky top-0 z-10 bg-slate-50"
   }, /*#__PURE__*/React.createElement("tr", {
@@ -1006,6 +1019,8 @@ function MasterLedger({
     }
   }), /*#__PURE__*/React.createElement("th", {
     className: "px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400"
+  }, "Status"), /*#__PURE__*/React.createElement("th", {
+    className: "px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400"
   }, "Docs / Actions"))), /*#__PURE__*/React.createElement("tbody", null, pageRows.map(r => /*#__PURE__*/React.createElement("tr", {
     key: r.id,
     className: "border-b border-slate-100 odd:bg-slate-50/50 transition-colors hover:bg-blue-50/40"
@@ -1034,6 +1049,12 @@ function MasterLedger({
     className: "px-3 py-2"
   }, /*#__PURE__*/React.createElement(Pill, {
     label: r.complianceFlag
+  })), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, /*#__PURE__*/React.createElement(EditableSelectWithCustom, {
+    value: r.followUpStatus,
+    options: FOLLOW_UP_STATUS_OPTIONS,
+    onSave: v => saveFollowUpStatus(r, v)
   })), /*#__PURE__*/React.createElement("td", {
     className: "whitespace-nowrap px-3 py-2"
   }, /*#__PURE__*/React.createElement("div", {
@@ -1065,7 +1086,7 @@ function MasterLedger({
       color: BRAND
     }
   }, "+ Add PI"))))), pageRows.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
-    colSpan: 10,
+    colSpan: 11,
     className: "px-3 py-8 text-center text-slate-400"
   }, "No records match your filters."))))), /*#__PURE__*/React.createElement(PaginationBar, {
     page: page,
@@ -1921,6 +1942,82 @@ function EditableDate({
     className: "w-full min-w-[130px] rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs outline-none focus:border-blue-500 disabled:opacity-50 disabled:bg-slate-50"
   });
 }
+function EditableSelectWithCustom({
+  value,
+  options,
+  onSave,
+  disabled
+}) {
+  const [customMode, setCustomMode] = useState(false);
+  const [customText, setCustomText] = useState("");
+  const [saving, setSaving] = useState(false);
+  async function commitCustom() {
+    if (!customText.trim()) return;
+    setSaving(true);
+    try {
+      await onSave(customText.trim());
+      setCustomMode(false);
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function handleSelectChange(e) {
+    const v = e.target.value;
+    if (v === "__custom__") {
+      setCustomMode(true);
+      setCustomText("");
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave(v);
+    } finally {
+      setSaving(false);
+    }
+  }
+  if (customMode) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center gap-1"
+    }, /*#__PURE__*/React.createElement("input", {
+      value: customText,
+      onChange: e => setCustomText(e.target.value),
+      onKeyDown: e => {
+        if (e.key === "Enter") commitCustom();
+      },
+      placeholder: "New status…",
+      autoFocus: true,
+      disabled: saving,
+      className: "min-w-[110px] rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs outline-none focus:border-blue-500 disabled:opacity-50"
+    }), /*#__PURE__*/React.createElement("button", {
+      onClick: commitCustom,
+      disabled: saving,
+      className: "shrink-0 rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-1 text-xs text-emerald-700 disabled:opacity-50",
+      title: "Save"
+    }, "✓"), /*#__PURE__*/React.createElement("button", {
+      onClick: () => setCustomMode(false),
+      disabled: saving,
+      className: "shrink-0 rounded-md border border-slate-200 px-1.5 py-1 text-xs text-slate-500 disabled:opacity-50",
+      title: "Cancel"
+    }, "✕"));
+  }
+  const knownValue = value && options.includes(value) ? value : value ? "__unlisted__" : "";
+  return /*#__PURE__*/React.createElement("select", {
+    value: knownValue,
+    onChange: handleSelectChange,
+    disabled: saving || disabled,
+    className: "w-full min-w-[150px] rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs outline-none focus:border-blue-500 disabled:opacity-50"
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "—"), options.map(o => /*#__PURE__*/React.createElement("option", {
+    key: o,
+    value: o
+  }, o)), value && !options.includes(value) && /*#__PURE__*/React.createElement("option", {
+    value: "__unlisted__"
+  }, value), /*#__PURE__*/React.createElement("option", {
+    value: "__custom__"
+  }, "+ Add new…"));
+}
+
 
 /* =====================================================================
    TAB 1 — MASTER PLACEMENT LEDGER
@@ -2907,11 +3004,17 @@ function parseOnboardingDate(s) {
   return isNaN(d) ? null : d;
 }
 function PlacementsOnboardingReport({
-  placements
+  placements,
+  onUpdateCell
 }) {
   const [query, setQuery] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+
+  async function saveCell(row, values) {
+    await onUpdateCell(row, values);
+    showToast("Saved — updated on the sheet.");
+  }
   const rows = useMemo(() => placements.map(p => ({
     ...p,
     _sessionCount: Number(p["No. of Onboarding Sessions"]) || 0,
@@ -3079,13 +3182,24 @@ function PlacementsOnboardingReport({
     className: "px-3 py-2"
   }, p["Broker"] || "—"), /*#__PURE__*/React.createElement("td", {
     className: "px-3 py-2"
-  }, p["Onboarding session"] ? /*#__PURE__*/React.createElement(PlacementPill, {
-    label: p["Onboarding session"] === "Completed" ? "Issued" : "In Progress"
-  }) : "—"), /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2 tabular-nums"
-  }, p["No. of Onboarding Sessions"] || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "px-3 py-2 whitespace-nowrap text-slate-500"
-  }, p["Onboarding Session Date"] || "—"))), pageRows.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+  }, /*#__PURE__*/React.createElement(EditableSelect, {
+    value: p["Onboarding session"],
+    options: ONBOARDING_SESSION_OPTIONS,
+    onSave: v => saveCell(p._row, { "Onboarding session": v })
+  })), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, /*#__PURE__*/React.createElement(EditableText, {
+    value: p["No. of Onboarding Sessions"],
+    type: "number",
+    disabled: !p["Onboarding session"],
+    onSave: v => saveCell(p._row, { "No. of Onboarding Sessions": v })
+  })), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, /*#__PURE__*/React.createElement(EditableDate, {
+    value: p["Onboarding Session Date"],
+    disabled: !p["Onboarding session"],
+    onSave: v => saveCell(p._row, { "Onboarding Session Date": v })
+  })))), pageRows.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
     colSpan: 6,
     className: "px-3 py-8 text-center text-slate-400"
   }, "No records match."))))), /*#__PURE__*/React.createElement(PaginationBar, {
@@ -3170,7 +3284,8 @@ function PlacementsTab({
   }), sub === "bottlenecks" && /*#__PURE__*/React.createElement(PlacementsBottlenecks, {
     placements: placements
   }), sub === "onboarding" && /*#__PURE__*/React.createElement(PlacementsOnboardingReport, {
-    placements: placements
+    placements: placements,
+    onUpdateCell: handleRowUpdate
   }), sub === "partners" && /*#__PURE__*/React.createElement(PlacementsPartners, {
     placements: placements
   }));
