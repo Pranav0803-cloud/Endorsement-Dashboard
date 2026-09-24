@@ -506,7 +506,8 @@ function PaginationBar({
 function MissingSidePanel({
   entry,
   onClose,
-  onSaved
+  onSaved,
+  onPatched
 }) {
   const mode = !(entry.tiInvNo || entry.tiLink) ? "ti" : "pi";
   const [form, setForm] = useState(mode === "ti" ? {
@@ -568,8 +569,37 @@ function MissingSidePanel({
           addedFields: form
         });
       }
-      await onSaved();
+      // Update the local view immediately — enrich() recomputes
+      // isFullyMatched etc. from these fields on the next render, so the
+      // row disappears from "Needs Attention" right away instead of
+      // waiting on a full reload from the sheet.
+      if (onPatched) {
+        const patch = mode === "ti" ? {
+          tiInvNo: form.invoiceNo || null,
+          tiDate: form.date || null,
+          tiDateISO: form.date || null,
+          tiTaxable: form.taxable === "" ? null : Number(form.taxable),
+          tiGst: form.gst === "" ? null : Number(form.gst),
+          tiTotal: form.total === "" ? null : Number(form.total),
+          tiMonth: form.month || null,
+          tiLink: form.link || null
+        } : {
+          piFile: form.file || null,
+          piDate: form.date || null,
+          piDateISO: form.date || null,
+          piAmount: form.amount === "" ? null : Number(form.amount),
+          piTerms: form.terms || null,
+          piDue: form.due || null,
+          sac: form.sac || null,
+          piLink: form.link || null
+        };
+        onPatched(patch);
+      }
       onClose();
+      // Reconcile with the true sheet state in the background — the write
+      // already succeeded, so this shouldn't block the UI or reopen the
+      // panel if it's slow; just quietly keep things in sync.
+      Promise.resolve(onSaved()).catch(() => {});
     } catch (e2) {
       setErr(String(e2.message || e2));
     } finally {
@@ -895,7 +925,8 @@ function uniqueColumnValues(rows, key) {
    ===================================================================== */
 function MasterLedger({
   entries,
-  refresh
+  refresh,
+  onPatch
 }) {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState("piDateISO");
@@ -996,6 +1027,9 @@ function MasterLedger({
   }, activeEntry && /*#__PURE__*/React.createElement(MissingSidePanel, {
     entry: activeEntry,
     onClose: () => setPanelFor(null),
+    onPatched: patch => {
+      if (onPatch) onPatch(activeEntry.id, patch);
+    },
     onSaved: () => {
       refresh();
       handleSaved();
@@ -1175,7 +1209,8 @@ function MasterLedger({
 function EndorsementsTab({
   entries,
   rawUnmatched,
-  refresh
+  refresh,
+  onPatch
 }) {
   const [sub, setSub] = useState("ledger");
   const unmatchedCount = entries.filter(e => !(e.tiInvNo || e.tiLink) || !(e.piFile || e.piLink)).length;
@@ -1211,7 +1246,8 @@ function EndorsementsTab({
     }
   }, t.label))), sub === "ledger" && /*#__PURE__*/React.createElement(MasterLedger, {
     entries: entries,
-    refresh: refresh
+    refresh: refresh,
+    onPatch: onPatch
   }), sub === "exec" && /*#__PURE__*/React.createElement(ExecutiveOverview, {
     entries: entries
   }), sub === "ops" && /*#__PURE__*/React.createElement(OperationsFunnel, {
@@ -1219,7 +1255,8 @@ function EndorsementsTab({
   }), sub === "unmatched" && /*#__PURE__*/React.createElement(UnmatchedInvoices, {
     entries: entries,
     refresh: refresh,
-    rawUnmatched: rawUnmatched
+    rawUnmatched: rawUnmatched,
+    onPatch: onPatch
   }), sub === "add" && /*#__PURE__*/React.createElement(AddBatchEntry, {
     refresh: refresh
   }));
@@ -1468,7 +1505,8 @@ function BulkCompleteModal({
 function UnmatchedInvoices({
   entries,
   refresh,
-  rawUnmatched
+  rawUnmatched,
+  onPatch
 }) {
   const [panelFor, setPanelFor] = useState(null);
   const [showBulkModal, setShowBulkModal] = useState(false);
@@ -1556,6 +1594,9 @@ function UnmatchedInvoices({
   }, active && /*#__PURE__*/React.createElement(MissingSidePanel, {
     entry: active,
     onClose: () => setPanelFor(null),
+    onPatched: patch => {
+      if (onPatch) onPatch(active.id, patch);
+    },
     onSaved: refresh
   }), showBulkModal && /*#__PURE__*/React.createElement(BulkCompleteModal, {
     rows: tiOnly,
@@ -3391,6 +3432,15 @@ function App() {
   useEffect(() => {
     load();
   }, []);
+  // Instant local update: when a save succeeds, patch the affected entry's
+  // fields right away instead of waiting for a full reload from the sheet.
+  // enrich() recomputes isFullyMatched etc. from these fields on the next
+  // render, so a row correctly vanishes from "Needs Attention" the moment
+  // its save resolves — no round-trip wait. A background reload still
+  // follows to reconcile with the true sheet state.
+  function patchEntry(id, patch) {
+    setEntries(prev => prev.map(e => e.id === id ? { ...e, ...patch } : e));
+  }
   const tabs = [{
     id: "endorsements",
     label: "Endorsements"
@@ -3435,7 +3485,8 @@ function App() {
   }, "Loading sheet data…") : /*#__PURE__*/React.createElement("main", null, tab === "endorsements" && /*#__PURE__*/React.createElement(EndorsementsTab, {
     entries: entries,
     rawUnmatched: rawUnmatched,
-    refresh: load
+    refresh: load,
+    onPatch: patchEntry
   }), tab === "placements" && /*#__PURE__*/React.createElement(PlacementsTab, {
     placements: placements,
     headerMap: placementsHeaderMap,
