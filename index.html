@@ -568,7 +568,7 @@ function MissingSidePanel({
           addedFields: form
         });
       }
-      onSaved();
+      await onSaved();
       onClose();
     } catch (e2) {
       setErr(String(e2.message || e2));
