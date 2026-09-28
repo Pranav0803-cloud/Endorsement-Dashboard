@@ -1203,7 +1203,836 @@ function MasterLedger({
 }
 
 /* =====================================================================
-   ENDORSEMENTS ROOT — 5 internal sub-views under one top-level nav tab,
+   CORP BILLING REPORT — every invoice bucketed as settled / active /
+   etc., grouped Month -> Corp, with ageing, a corp scorecard, a
+   skipped-month view, and a monthly raised-vs-collected chart.
+   ===================================================================== */
+const CBR_BUCKETS = [{
+  id: "settled",
+  label: "Settled",
+  hint: "PI and TI both on file"
+}, {
+  id: "settled_nopi",
+  label: "Settled, no PI on file",
+  hint: "Payment collected, PI waived"
+}, {
+  id: "awaiting",
+  label: "Paid, awaiting TI",
+  hint: "Payment done, TI pending"
+}, {
+  id: "active",
+  label: "Active (unpaid PI)",
+  hint: "PI issued, not paid yet"
+}, {
+  id: "disputed",
+  label: "Disputed / void",
+  hint: "Status mentions disputed, void or superseded"
+}];
+const CBR_STYLE = {
+  settled: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  settled_nopi: "bg-sky-50 text-sky-700 border-sky-200",
+  awaiting: "bg-blue-50 text-blue-700 border-blue-200",
+  active: "bg-amber-50 text-amber-700 border-amber-200",
+  disputed: "bg-rose-50 text-rose-700 border-rose-200"
+};
+const CBR_AGES = [{
+  id: "0-30",
+  label: "0-30 days"
+}, {
+  id: "31-60",
+  label: "31-60 days"
+}, {
+  id: "61-90",
+  label: "61-90 days"
+}, {
+  id: "90+",
+  label: "90+ days"
+}];
+const CBR_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function cbrCorpKey(name) {
+  return String(name || "").toUpperCase().replace(/\bPRIVATE\b/g, "PVT").replace(/\bLIMITED\b/g, "LTD").replace(/[^A-Z0-9()]+/g, " ").trim();
+}
+function cbrParseDate(s) {
+  const d = formatDMY(s);
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(d);
+  if (!m) return null;
+  const dt = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+  return isNaN(dt) ? null : dt;
+}
+function cbrFmt(d) {
+  return d ? `${pad2_(d.getDate())}/${pad2_(d.getMonth() + 1)}/${d.getFullYear()}` : "—";
+}
+function cbrMonthLabel(key) {
+  if (key === "undated") return "Undated";
+  const [y, m] = key.split("-");
+  return `${CBR_MONTHS[Number(m) - 1]} ${y}`;
+}
+function cbrIdxLabel(i) {
+  return `${CBR_MONTHS[i % 12]} ${Math.floor(i / 12)}`;
+}
+function cbrClassify(e) {
+  const hasPI = !!(e.piFile || e.piLink);
+  const hasTI = !!(e.tiInvNo || e.tiLink);
+  if (!hasPI && !hasTI) return null;
+  const piDate = cbrParseDate(e.piDate);
+  const tiDate = cbrParseDate(e.tiDate);
+  const base = tiDate || piDate;
+  const waived = hasTI && (!hasPI || /^no pi/i.test(String(e.piFile || "")));
+  let bucket;
+  if (hasTI) {
+    bucket = waived ? "settled_nopi" : "settled";
+  } else {
+    const fu = String(e.followUpStatus || "");
+    if (/disput|void|supersed/i.test(fu)) bucket = "disputed";else if (/awaiting\s*ti/i.test(fu)) bucket = "awaiting";else bucket = "active";
+  }
+  const pi = e.piAmount || 0;
+  const ti = e.tiTotal || 0;
+  const open = !hasTI;
+  const age = open && piDate ? Math.max(0, Math.floor((Date.now() - piDate.getTime()) / 86400000)) : null;
+  const ageBucket = !open ? null : age == null ? "none" : age <= 30 ? "0-30" : age <= 60 ? "31-60" : age <= 90 ? "61-90" : "90+";
+  const lag = hasTI && hasPI && !waived && piDate && tiDate ? Math.round((tiDate - piDate) / 86400000) : null;
+  return {
+    id: e.id,
+    company: e.company || "(no name)",
+    corpKey: cbrCorpKey(e.company),
+    bucket,
+    date: base,
+    monthKey: base ? `${base.getFullYear()}-${pad2_(base.getMonth() + 1)}` : "undated",
+    piDate,
+    tiDate,
+    piAmount: pi,
+    tiAmount: ti,
+    tiInvNo: e.tiInvNo,
+    piLink: e.piLink,
+    tiLink: e.tiLink,
+    raised: bucket === "settled_nopi" ? 0 : pi,
+    collected: hasTI ? ti : 0,
+    unpaid: bucket === "active" ? pi : 0,
+    awaitingVal: bucket === "awaiting" ? pi : 0,
+    disputedVal: bucket === "disputed" ? pi : 0,
+    age,
+    ageBucket,
+    lag
+  };
+}
+function cbrAgg(list) {
+  const a = {
+    count: list.length,
+    raised: 0,
+    collected: 0,
+    unpaid: 0,
+    awaiting: 0,
+    disputed: 0
+  };
+  list.forEach(r => {
+    a.raised += r.raised;
+    a.collected += r.collected;
+    a.unpaid += r.unpaid;
+    a.awaiting += r.awaitingVal;
+    a.disputed += r.disputedVal;
+  });
+  const billed = a.collected + a.unpaid + a.awaiting + a.disputed;
+  a.pct = billed > 0 ? a.collected / billed * 100 : null;
+  return a;
+}
+function cbrPct(p) {
+  return p == null ? "—" : `${p.toFixed(0)}%`;
+}
+function cbrDownloadCSV(filename, headers, lines) {
+  const csv = [headers.join(","), ...lines.map(l => l.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(","))].join("\n");
+  const blob = new Blob([csv], {
+    type: "text/csv"
+  });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+}
+function CbrBucketPill({
+  bucket
+}) {
+  const b = CBR_BUCKETS.find(x => x.id === bucket);
+  return /*#__PURE__*/React.createElement("span", {
+    className: `inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium ${CBR_STYLE[bucket]}`
+  }, b ? b.label : bucket);
+}
+function CorpBillingReport({
+  entries
+}) {
+  const [view, setView] = useState("month");
+  const [query, setQuery] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [bucketFilter, setBucketFilter] = useState(null);
+  const [ageFilter, setAgeFilter] = useState(null);
+  const [openMonths, setOpenMonths] = useState({});
+  const [openCorps, setOpenCorps] = useState({});
+  const [scSort, setScSort] = useState({
+    key: "billed",
+    dir: "desc"
+  });
+  const [minMonths, setMinMonths] = useState(3);
+  const chartRef = useRef(null);
+  const chartInst = useRef(null);
+  const all = useMemo(() => {
+    const rows = entries.map(cbrClassify).filter(Boolean);
+    const names = {};
+    rows.forEach(r => {
+      if (!names[r.corpKey] || r.company.length > names[r.corpKey].length) names[r.corpKey] = r.company;
+    });
+    rows.forEach(r => {
+      r.corp = names[r.corpKey];
+    });
+    return rows;
+  }, [entries]);
+  const base = useMemo(() => all.filter(r => {
+    if (query && !r.corp.toLowerCase().includes(query.toLowerCase())) return false;
+    if (fromDate || toDate) {
+      if (!r.date) return false;
+      if (fromDate && r.date < new Date(fromDate + "T00:00:00")) return false;
+      if (toDate && r.date > new Date(toDate + "T23:59:59")) return false;
+    }
+    return true;
+  }), [all, query, fromDate, toDate]);
+  const filtered = useMemo(() => base.filter(r => (!bucketFilter || r.bucket === bucketFilter) && (!ageFilter || r.bucket === "active" && r.ageBucket === ageFilter)), [base, bucketFilter, ageFilter]);
+  const bucketStats = useMemo(() => {
+    const out = {};
+    CBR_BUCKETS.forEach(b => {
+      const list = base.filter(r => r.bucket === b.id);
+      out[b.id] = {
+        count: list.length,
+        value: list.reduce((s, r) => s + (b.id === "settled" || b.id === "settled_nopi" ? r.collected : r.piAmount), 0)
+      };
+    });
+    return out;
+  }, [base]);
+  const ageStats = useMemo(() => {
+    const out = {
+      "0-30": {
+        count: 0,
+        value: 0
+      },
+      "31-60": {
+        count: 0,
+        value: 0
+      },
+      "61-90": {
+        count: 0,
+        value: 0
+      },
+      "90+": {
+        count: 0,
+        value: 0
+      },
+      none: {
+        count: 0,
+        value: 0
+      }
+    };
+    base.forEach(r => {
+      if (r.bucket !== "active") return;
+      out[r.ageBucket].count += 1;
+      out[r.ageBucket].value += r.piAmount;
+    });
+    return out;
+  }, [base]);
+  const months = useMemo(() => {
+    const map = {};
+    filtered.forEach(r => {
+      (map[r.monthKey] = map[r.monthKey] || []).push(r);
+    });
+    const keys = Object.keys(map).sort((a, b) => a === "undated" ? 1 : b === "undated" ? -1 : b.localeCompare(a));
+    return keys.map(k => {
+      const list = map[k];
+      const corpMap = {};
+      list.forEach(r => {
+        (corpMap[r.corp] = corpMap[r.corp] || []).push(r);
+      });
+      const corps = Object.entries(corpMap).map(([name, items]) => ({
+        name,
+        items,
+        agg: cbrAgg(items)
+      })).sort((a, b) => b.agg.raised + b.agg.collected - (a.agg.raised + a.agg.collected));
+      return {
+        key: k,
+        agg: cbrAgg(list),
+        corps
+      };
+    });
+  }, [filtered]);
+  useEffect(() => {
+    if (view !== "month" || !chartRef.current) return undefined;
+    if (chartInst.current) chartInst.current.destroy();
+    const asc = months.filter(m => m.key !== "undated").slice().reverse();
+    chartInst.current = new Chart(chartRef.current, {
+      type: "bar",
+      data: {
+        labels: asc.map(m => cbrMonthLabel(m.key)),
+        datasets: [{
+          label: "Raised (PI)",
+          data: asc.map(m => Math.round(m.agg.raised)),
+          backgroundColor: BRAND
+        }, {
+          label: "Collected (TI)",
+          data: asc.map(m => Math.round(m.agg.collected)),
+          backgroundColor: "#10b981"
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: {
+            position: "bottom"
+          }
+        },
+        scales: {
+          y: {
+            ticks: {
+              callback: v => compact(v)
+            }
+          }
+        }
+      }
+    });
+    return () => {
+      if (chartInst.current) {
+        chartInst.current.destroy();
+        chartInst.current = null;
+      }
+    };
+  }, [months, view]);
+  const scorecard = useMemo(() => {
+    const map = {};
+    base.forEach(r => {
+      (map[r.corp] = map[r.corp] || []).push(r);
+    });
+    const rows = Object.entries(map).map(([name, items]) => {
+      const agg = cbrAgg(items);
+      const billed = agg.collected + agg.unpaid + agg.awaiting + agg.disputed;
+      const lags = items.map(i => i.lag).filter(l => l != null && l >= 0).sort((a, b) => a - b);
+      const medLag = lags.length ? lags[Math.floor(lags.length / 2)] : null;
+      const ages = items.filter(i => i.bucket === "active" && i.age != null).map(i => i.age);
+      const oldest = ages.length ? Math.max(...ages) : null;
+      const last = items.reduce((mx, i) => i.date && (!mx || i.date > mx) ? i.date : mx, null);
+      return {
+        name,
+        agg,
+        billed,
+        medLag,
+        oldest,
+        last,
+        share: 0
+      };
+    });
+    const grand = rows.reduce((s, r) => s + r.billed, 0);
+    rows.forEach(r => {
+      r.share = grand > 0 ? r.billed / grand * 100 : 0;
+    });
+    return rows;
+  }, [base]);
+  const scSorted = useMemo(() => {
+    const dir = scSort.dir === "asc" ? 1 : -1;
+    const val = r => {
+      switch (scSort.key) {
+        case "corp":
+          return r.name.toLowerCase();
+        case "count":
+          return r.agg.count;
+        case "billed":
+          return r.billed;
+        case "share":
+          return r.share;
+        case "collected":
+          return r.agg.collected;
+        case "unpaid":
+          return r.agg.unpaid;
+        case "pct":
+          return r.agg.pct == null ? -1 : r.agg.pct;
+        case "lag":
+          return r.medLag == null ? -1 : r.medLag;
+        case "oldest":
+          return r.oldest == null ? -1 : r.oldest;
+        case "last":
+          return r.last ? r.last.getTime() : 0;
+        default:
+          return 0;
+      }
+    };
+    return scorecard.slice().sort((a, b) => {
+      const x = val(a);
+      const y = val(b);
+      return x < y ? -dir : x > y ? dir : 0;
+    });
+  }, [scorecard, scSort]);
+  const gaps = useMemo(() => {
+    const cm = {};
+    base.forEach(r => {
+      if (!r.date) return;
+      (cm[r.corp] = cm[r.corp] || new Set()).add(r.date.getFullYear() * 12 + r.date.getMonth());
+    });
+    const out = [];
+    Object.entries(cm).forEach(([name, set]) => {
+      if (set.size < minMonths) return;
+      const idxs = Array.from(set).sort((a, b) => a - b);
+      const first = idxs[0];
+      const last = idxs[idxs.length - 1];
+      const skipped = [];
+      for (let i = first + 1; i < last; i++) if (!set.has(i)) skipped.push(i);
+      if (skipped.length) out.push({
+        name,
+        billedMonths: set.size,
+        first,
+        last,
+        skipped
+      });
+    });
+    return out.sort((a, b) => b.skipped.length - a.skipped.length);
+  }, [base, minMonths]);
+  const scPager = usePagedRows(scSorted, 50);
+  const gapPager = usePagedRows(gaps, 50);
+  const hasFilters = !!(query || fromDate || toDate || bucketFilter || ageFilter);
+  function clearAll() {
+    setQuery("");
+    setFromDate("");
+    setToDate("");
+    setBucketFilter(null);
+    setAgeFilter(null);
+  }
+  function toggleBucket(id) {
+    setBucketFilter(bucketFilter === id ? null : id);
+    setAgeFilter(null);
+  }
+  function toggleAge(id) {
+    if (ageFilter === id) {
+      setAgeFilter(null);
+    } else {
+      setAgeFilter(id);
+      setBucketFilter("active");
+    }
+  }
+  function sortBy(key) {
+    setScSort(scSort.key === key ? {
+      key,
+      dir: scSort.dir === "asc" ? "desc" : "asc"
+    } : {
+      key,
+      dir: "desc"
+    });
+    scPager.setPage(1);
+  }
+  function exportCSV() {
+    if (view === "scorecard") {
+      cbrDownloadCSV("corp_scorecard.csv", ["Corp", "Invoices", "Billed value", "Share %", "Collected", "Unpaid", "Awaiting TI", "Disputed", "Collected %", "Median PI to TI lag (days)", "Oldest unpaid (days)", "Last invoice"], scSorted.map(r => [r.name, r.agg.count, Math.round(r.billed), r.share.toFixed(1), Math.round(r.agg.collected), Math.round(r.agg.unpaid), Math.round(r.agg.awaiting), Math.round(r.agg.disputed), r.agg.pct == null ? "" : r.agg.pct.toFixed(0), r.medLag ?? "", r.oldest ?? "", cbrFmt(r.last)]));
+    } else if (view === "gaps") {
+      cbrDownloadCSV("skipped_months.csv", ["Corp", "Months billed", "First", "Last", "Skipped count", "Skipped months"], gaps.map(g => [g.name, g.billedMonths, cbrIdxLabel(g.first), cbrIdxLabel(g.last), g.skipped.length, g.skipped.map(cbrIdxLabel).join("; ")]));
+    } else {
+      cbrDownloadCSV("corp_billing_invoices.csv", ["Month", "Corp", "Bucket", "Invoice date", "PI amount", "TI invoice no", "TI amount", "Age (days)"], filtered.map(r => [cbrMonthLabel(r.monthKey), r.corp, (CBR_BUCKETS.find(b => b.id === r.bucket) || {}).label, cbrFmt(r.date), r.bucket === "settled_nopi" ? "" : r.piAmount, r.tiInvNo || "", r.tiAmount || "", r.age ?? ""]));
+    }
+  }
+  const th = "px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400 whitespace-nowrap";
+  const sortTh = (label, key) => /*#__PURE__*/React.createElement("th", {
+    className: th
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => sortBy(key),
+    className: "inline-flex items-center gap-1 hover:text-slate-700"
+  }, label, /*#__PURE__*/React.createElement("span", {
+    className: "text-[9px] opacity-60"
+  }, scSort.key === key ? scSort.dir === "asc" ? "▲" : "▼" : "↕")));
+  const viewBtn = (id, label) => /*#__PURE__*/React.createElement("button", {
+    key: id,
+    onClick: () => setView(id),
+    className: "rounded-xl px-3 py-1.5 text-xs font-medium transition-all",
+    style: view === id ? {
+      backgroundColor: "#eaf1ff",
+      color: BRAND
+    } : {
+      color: "#64748b"
+    }
+  }, label);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col gap-5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between"
+  }, /*#__PURE__*/React.createElement("input", {
+    value: query,
+    onChange: e => setQuery(e.target.value),
+    placeholder: "Search corp…",
+    className: `${inputCls} lg:max-w-xs`
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap items-center gap-2"
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "text-xs text-slate-500"
+  }, "From"), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: fromDate,
+    onChange: e => setFromDate(e.target.value),
+    className: "rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm"
+  }), /*#__PURE__*/React.createElement("label", {
+    className: "text-xs text-slate-500"
+  }, "To"), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: toDate,
+    onChange: e => setToDate(e.target.value),
+    className: "rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm"
+  }), hasFilters && /*#__PURE__*/React.createElement("button", {
+    onClick: clearAll,
+    className: "rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700"
+  }, "Clear filters"), /*#__PURE__*/React.createElement("button", {
+    onClick: exportCSV,
+    className: "rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium transition-transform hover:scale-[1.02] hover:bg-slate-50"
+  }, "Export CSV"))), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-2 gap-3 md:grid-cols-5"
+  }, CBR_BUCKETS.map(b => {
+    const s = bucketStats[b.id];
+    const on = bucketFilter === b.id;
+    return /*#__PURE__*/React.createElement("button", {
+      key: b.id,
+      onClick: () => toggleBucket(b.id),
+      title: b.hint,
+      className: "rounded-2xl border p-3 text-left shadow-sm transition-transform hover:scale-[1.02]",
+      style: on ? {
+        borderColor: BRAND,
+        backgroundColor: "#eaf1ff"
+      } : {
+        borderColor: "#e2e8f0",
+        backgroundColor: "white"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "text-[11px] uppercase tracking-wide text-slate-400"
+    }, b.label), /*#__PURE__*/React.createElement("div", {
+      className: "mt-1 text-xl font-semibold text-slate-900"
+    }, s.count), /*#__PURE__*/React.createElement("div", {
+      className: "mt-0.5 text-[11px] tabular-nums text-slate-500"
+    }, inr(s.value)));
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mb-3 flex flex-wrap items-baseline justify-between gap-2"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "text-sm font-semibold text-slate-800"
+  }, "Ageing of unpaid PIs"), /*#__PURE__*/React.createElement("span", {
+    className: "text-xs text-slate-400"
+  }, "Age counted from the PI date. Click a bucket to filter everything below.")), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-2 gap-3 md:grid-cols-4"
+  }, CBR_AGES.map(a => {
+    const s = ageStats[a.id];
+    const on = ageFilter === a.id;
+    return /*#__PURE__*/React.createElement("button", {
+      key: a.id,
+      onClick: () => toggleAge(a.id),
+      className: "rounded-xl border p-3 text-left transition-transform hover:scale-[1.02]",
+      style: on ? {
+        borderColor: BRAND,
+        backgroundColor: "#eaf1ff"
+      } : {
+        borderColor: "#e2e8f0",
+        backgroundColor: "white"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "text-[11px] uppercase tracking-wide text-slate-400"
+    }, a.label), /*#__PURE__*/React.createElement("div", {
+      className: "mt-1 text-lg font-semibold text-slate-900"
+    }, s.count), /*#__PURE__*/React.createElement("div", {
+      className: "text-[11px] tabular-nums text-slate-500"
+    }, inr(s.value)));
+  })), ageStats.none.count > 0 && /*#__PURE__*/React.createElement("p", {
+    className: "mt-2 text-xs text-slate-400"
+  }, ageStats.none.count, " unpaid PI(s) have no readable PI date, so they are left out of the age buckets.")), /*#__PURE__*/React.createElement("div", {
+    className: "flex w-fit flex-wrap gap-1 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm"
+  }, viewBtn("month", "By Month"), viewBtn("scorecard", "Corp Scorecard"), viewBtn("gaps", "Skipped Months")), view === "month" && /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col gap-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "mb-3 text-sm font-semibold text-slate-800"
+  }, "Raised vs Collected, by month"), months.some(m => m.key !== "undated") ? /*#__PURE__*/React.createElement("canvas", {
+    ref: chartRef,
+    height: "110"
+  }) : /*#__PURE__*/React.createElement("p", {
+    className: "py-8 text-center text-sm text-slate-400"
+  }, "Nothing to chart for the current filters."), /*#__PURE__*/React.createElement("p", {
+    className: "mt-2 text-xs text-slate-400"
+  }, "Collected uses the TI amount, so it can exceed Raised in months where invoices were settled without a PI on file. Collected % = TI value ÷ (TI value + unpaid + awaiting-TI + disputed PI value).")), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "text-sm font-semibold text-slate-800"
+  }, "Month, then corps (", months.length, " month", months.length === 1 ? "" : "s", ")"), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      const o = {};
+      months.forEach(m => {
+        o[m.key] = true;
+      });
+      setOpenMonths(o);
+    },
+    className: "text-xs font-medium text-blue-600 underline"
+  }, "Expand all months"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      setOpenMonths({});
+      setOpenCorps({});
+    },
+    className: "text-xs font-medium text-slate-500 underline"
+  }, "Collapse all"))), months.length === 0 && /*#__PURE__*/React.createElement("div", {
+    className: "rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-400"
+  }, "No invoices match the current filters."), months.map(m => {
+    const open = !!openMonths[m.key];
+    return /*#__PURE__*/React.createElement("div", {
+      key: m.key,
+      className: "rounded-2xl border border-slate-200 bg-white shadow-sm"
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => setOpenMonths({
+        ...openMonths,
+        [m.key]: !open
+      }),
+      className: "flex w-full flex-wrap items-center gap-x-6 gap-y-1 px-4 py-3 text-left"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "w-4 text-slate-400"
+    }, open ? "▾" : "▸"), /*#__PURE__*/React.createElement("span", {
+      className: "min-w-[90px] text-sm font-semibold text-slate-800"
+    }, cbrMonthLabel(m.key)), /*#__PURE__*/React.createElement("span", {
+      className: "text-xs text-slate-500"
+    }, m.agg.count, " invoices · ", m.corps.length, " corps"), /*#__PURE__*/React.createElement("span", {
+      className: "ml-auto flex flex-wrap gap-x-5 gap-y-1 text-xs tabular-nums"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "text-slate-500"
+    }, "Raised ", /*#__PURE__*/React.createElement("span", {
+      className: "font-semibold text-slate-800"
+    }, inr(m.agg.raised))), /*#__PURE__*/React.createElement("span", {
+      className: "text-slate-500"
+    }, "Collected ", /*#__PURE__*/React.createElement("span", {
+      className: "font-semibold text-emerald-700"
+    }, inr(m.agg.collected))), /*#__PURE__*/React.createElement("span", {
+      className: "text-slate-500"
+    }, "Unpaid ", /*#__PURE__*/React.createElement("span", {
+      className: "font-semibold text-amber-700"
+    }, inr(m.agg.unpaid))), /*#__PURE__*/React.createElement("span", {
+      className: "text-slate-500"
+    }, "Collected % ", /*#__PURE__*/React.createElement("span", {
+      className: "font-semibold text-slate-800"
+    }, cbrPct(m.agg.pct))))), open && /*#__PURE__*/React.createElement("div", {
+      className: "overflow-auto border-t border-slate-100"
+    }, /*#__PURE__*/React.createElement("table", {
+      className: "w-full min-w-[900px] text-sm"
+    }, /*#__PURE__*/React.createElement("thead", {
+      className: "bg-slate-50"
+    }, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+      className: th
+    }, "Corp"), /*#__PURE__*/React.createElement("th", {
+      className: th
+    }, "Invoices"), /*#__PURE__*/React.createElement("th", {
+      className: th
+    }, "Raised"), /*#__PURE__*/React.createElement("th", {
+      className: th
+    }, "Collected"), /*#__PURE__*/React.createElement("th", {
+      className: th
+    }, "Unpaid"), /*#__PURE__*/React.createElement("th", {
+      className: th
+    }, "Awaiting TI"), /*#__PURE__*/React.createElement("th", {
+      className: th
+    }, "Disputed"), /*#__PURE__*/React.createElement("th", {
+      className: th
+    }, "Collected %"))), /*#__PURE__*/React.createElement("tbody", null, m.corps.map(c => {
+      const ck = `${m.key}|${c.name}`;
+      const cOpen = !!openCorps[ck];
+      return /*#__PURE__*/React.createElement(React.Fragment, {
+        key: ck
+      }, /*#__PURE__*/React.createElement("tr", {
+        onClick: () => setOpenCorps({
+          ...openCorps,
+          [ck]: !cOpen
+        }),
+        className: "cursor-pointer border-t border-slate-100 align-top transition-colors hover:bg-blue-50/40"
+      }, /*#__PURE__*/React.createElement("td", {
+        className: "min-w-[200px] whitespace-normal break-words px-3 py-2 font-medium text-slate-800"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "mr-2 text-slate-400"
+      }, cOpen ? "▾" : "▸"), c.name), /*#__PURE__*/React.createElement("td", {
+        className: "px-3 py-2 tabular-nums"
+      }, c.agg.count), /*#__PURE__*/React.createElement("td", {
+        className: "px-3 py-2 tabular-nums"
+      }, c.agg.raised ? inr(c.agg.raised) : "—"), /*#__PURE__*/React.createElement("td", {
+        className: "px-3 py-2 tabular-nums text-emerald-700"
+      }, c.agg.collected ? inr(c.agg.collected) : "—"), /*#__PURE__*/React.createElement("td", {
+        className: "px-3 py-2 tabular-nums text-amber-700"
+      }, c.agg.unpaid ? inr(c.agg.unpaid) : "—"), /*#__PURE__*/React.createElement("td", {
+        className: "px-3 py-2 tabular-nums text-blue-700"
+      }, c.agg.awaiting ? inr(c.agg.awaiting) : "—"), /*#__PURE__*/React.createElement("td", {
+        className: "px-3 py-2 tabular-nums text-rose-700"
+      }, c.agg.disputed ? inr(c.agg.disputed) : "—"), /*#__PURE__*/React.createElement("td", {
+        className: "px-3 py-2 tabular-nums"
+      }, cbrPct(c.agg.pct))), cOpen && /*#__PURE__*/React.createElement("tr", {
+        className: "bg-slate-50/60"
+      }, /*#__PURE__*/React.createElement("td", {
+        colSpan: 8,
+        className: "px-3 py-2"
+      }, /*#__PURE__*/React.createElement("table", {
+        className: "w-full min-w-[760px] text-xs"
+      }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
+        className: "text-left text-[10px] uppercase tracking-wide text-slate-400"
+      }, /*#__PURE__*/React.createElement("th", {
+        className: "px-2 py-1"
+      }, "Date"), /*#__PURE__*/React.createElement("th", {
+        className: "px-2 py-1"
+      }, "Bucket"), /*#__PURE__*/React.createElement("th", {
+        className: "px-2 py-1"
+      }, "PI amount"), /*#__PURE__*/React.createElement("th", {
+        className: "px-2 py-1"
+      }, "TI no."), /*#__PURE__*/React.createElement("th", {
+        className: "px-2 py-1"
+      }, "TI amount"), /*#__PURE__*/React.createElement("th", {
+        className: "px-2 py-1"
+      }, "Age"), /*#__PURE__*/React.createElement("th", {
+        className: "px-2 py-1"
+      }, "Docs"))), /*#__PURE__*/React.createElement("tbody", null, c.items.slice().sort((a, b) => (a.date ? a.date.getTime() : 0) - (b.date ? b.date.getTime() : 0)).map(r => /*#__PURE__*/React.createElement("tr", {
+        key: r.id,
+        className: "border-t border-slate-100"
+      }, /*#__PURE__*/React.createElement("td", {
+        className: "whitespace-nowrap px-2 py-1 text-slate-600"
+      }, cbrFmt(r.date)), /*#__PURE__*/React.createElement("td", {
+        className: "px-2 py-1"
+      }, /*#__PURE__*/React.createElement(CbrBucketPill, {
+        bucket: r.bucket
+      })), /*#__PURE__*/React.createElement("td", {
+        className: "px-2 py-1 tabular-nums"
+      }, r.bucket === "settled_nopi" ? "—" : inr(r.piAmount)), /*#__PURE__*/React.createElement("td", {
+        className: "whitespace-nowrap px-2 py-1"
+      }, r.tiInvNo || "—"), /*#__PURE__*/React.createElement("td", {
+        className: "px-2 py-1 tabular-nums"
+      }, r.tiAmount ? inr(r.tiAmount) : "—"), /*#__PURE__*/React.createElement("td", {
+        className: "px-2 py-1 tabular-nums"
+      }, r.age != null ? `${r.age}d` : "—"), /*#__PURE__*/React.createElement("td", {
+        className: "whitespace-nowrap px-2 py-1"
+      }, r.piLink && /*#__PURE__*/React.createElement("a", {
+        href: r.piLink,
+        target: "_blank",
+        rel: "noreferrer",
+        className: "mr-2 text-slate-400 hover:text-blue-600"
+      }, "PI↗"), r.tiLink && /*#__PURE__*/React.createElement("a", {
+        href: r.tiLink,
+        target: "_blank",
+        rel: "noreferrer",
+        className: "text-slate-400 hover:text-emerald-600"
+      }, "TI↗")))))))));
+    })))));
+  })), view === "scorecard" && /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col gap-3"
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "text-xs text-slate-400"
+  }, "Respects the search and date range above, but not the bucket or age filters, so collection figures always cover every invoice for the corp. Lag is the median days from PI date to TI date (real PIs only)."), /*#__PURE__*/React.createElement("div", {
+    className: "overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "w-full min-w-[1100px] text-sm"
+  }, /*#__PURE__*/React.createElement("thead", {
+    className: "bg-slate-50"
+  }, /*#__PURE__*/React.createElement("tr", null, sortTh("Corp", "corp"), sortTh("Invoices", "count"), sortTh("Billed value", "billed"), sortTh("Share", "share"), sortTh("Collected", "collected"), sortTh("Unpaid", "unpaid"), sortTh("Collected %", "pct"), sortTh("PI→TI lag", "lag"), sortTh("Oldest unpaid", "oldest"), sortTh("Last invoice", "last"))), /*#__PURE__*/React.createElement("tbody", null, scPager.pageRows.map(r => /*#__PURE__*/React.createElement("tr", {
+    key: r.name,
+    className: "border-t border-slate-100 align-top transition-colors hover:bg-blue-50/40"
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "min-w-[200px] whitespace-normal break-words px-3 py-2 font-medium text-slate-800"
+  }, r.name), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 tabular-nums"
+  }, r.agg.count), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 tabular-nums"
+  }, inr(r.billed)), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 tabular-nums text-slate-500"
+  }, r.share.toFixed(1), "%"), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 tabular-nums text-emerald-700"
+  }, r.agg.collected ? inr(r.agg.collected) : "—"), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 tabular-nums text-amber-700"
+  }, r.agg.unpaid ? inr(r.agg.unpaid) : "—"), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 tabular-nums"
+  }, cbrPct(r.agg.pct)), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 tabular-nums"
+  }, r.medLag != null ? `${r.medLag}d` : "—"), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 tabular-nums"
+  }, r.oldest != null ? `${r.oldest}d` : "—"), /*#__PURE__*/React.createElement("td", {
+    className: "whitespace-nowrap px-3 py-2 text-slate-500"
+  }, cbrFmt(r.last)))), scPager.pageRows.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    colSpan: 10,
+    className: "px-3 py-8 text-center text-slate-400"
+  }, "No corps match the current filters."))))), /*#__PURE__*/React.createElement(PaginationBar, {
+    page: scPager.page,
+    setPage: scPager.setPage,
+    totalPages: scPager.totalPages,
+    pageSize: scPager.pageSize,
+    setPageSize: scPager.setPageSize,
+    totalRows: scSorted.length,
+    shownCount: scPager.pageRows.length
+  })), view === "gaps" && /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col gap-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap items-center justify-between gap-2"
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "max-w-3xl text-xs text-slate-400"
+  }, "Corps that bill regularly but have calendar months with no invoice between their first and last invoice. Endorsement invoices depend on employee changes, so a skipped month is not always a missing invoice. Treat this as a checklist of where to look. Uses the search and date range above."), /*#__PURE__*/React.createElement("label", {
+    className: "flex items-center gap-2 text-xs text-slate-500"
+  }, "Billed in at least", /*#__PURE__*/React.createElement("select", {
+    value: minMonths,
+    onChange: e => {
+      setMinMonths(Number(e.target.value));
+      gapPager.setPage(1);
+    },
+    className: "rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+  }, [3, 4, 6, 9, 12].map(n => /*#__PURE__*/React.createElement("option", {
+    key: n,
+    value: n
+  }, n))), "months")), /*#__PURE__*/React.createElement("div", {
+    className: "overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "w-full min-w-[900px] text-sm"
+  }, /*#__PURE__*/React.createElement("thead", {
+    className: "bg-slate-50"
+  }, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    className: th
+  }, "Corp"), /*#__PURE__*/React.createElement("th", {
+    className: th
+  }, "Months billed"), /*#__PURE__*/React.createElement("th", {
+    className: th
+  }, "First"), /*#__PURE__*/React.createElement("th", {
+    className: th
+  }, "Last"), /*#__PURE__*/React.createElement("th", {
+    className: th
+  }, "Skipped"), /*#__PURE__*/React.createElement("th", {
+    className: th
+  }, "Skipped months"))), /*#__PURE__*/React.createElement("tbody", null, gapPager.pageRows.map(g => /*#__PURE__*/React.createElement("tr", {
+    key: g.name,
+    className: "border-t border-slate-100 align-top"
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "min-w-[200px] whitespace-normal break-words px-3 py-2 font-medium text-slate-800"
+  }, g.name), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 tabular-nums"
+  }, g.billedMonths), /*#__PURE__*/React.createElement("td", {
+    className: "whitespace-nowrap px-3 py-2 text-slate-500"
+  }, cbrIdxLabel(g.first)), /*#__PURE__*/React.createElement("td", {
+    className: "whitespace-nowrap px-3 py-2 text-slate-500"
+  }, cbrIdxLabel(g.last)), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2 tabular-nums font-semibold text-amber-700"
+  }, g.skipped.length), /*#__PURE__*/React.createElement("td", {
+    className: "px-3 py-2"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap gap-1"
+  }, g.skipped.slice(0, 12).map(i => /*#__PURE__*/React.createElement("span", {
+    key: i,
+    className: "rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600"
+  }, cbrIdxLabel(i))), g.skipped.length > 12 && /*#__PURE__*/React.createElement("span", {
+    className: "text-[11px] text-slate-400"
+  }, "+", g.skipped.length - 12, " more"))))), gapPager.pageRows.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    colSpan: 6,
+    className: "px-3 py-8 text-center text-slate-400"
+  }, "No skipped months found for the current settings."))))), /*#__PURE__*/React.createElement(PaginationBar, {
+    page: gapPager.page,
+    setPage: gapPager.setPage,
+    totalPages: gapPager.totalPages,
+    pageSize: gapPager.pageSize,
+    setPageSize: gapPager.setPageSize,
+    totalRows: gaps.length,
+    shownCount: gapPager.pageRows.length
+  })));
+}
+
+/* =====================================================================
+   ENDORSEMENTS ROOT — 6 internal sub-views under one top-level nav tab,
    mirroring the same pattern as PlacementsTab.
    ===================================================================== */
 function EndorsementsTab({
@@ -1223,6 +2052,9 @@ function EndorsementsTab({
   }, {
     id: "ops",
     label: "Operations & Pipeline"
+  }, {
+    id: "corp",
+    label: "Corp Billing Report"
   }, {
     id: "unmatched",
     label: `Unmatched Invoices (${unmatchedCount})`
@@ -1251,6 +2083,8 @@ function EndorsementsTab({
   }), sub === "exec" && /*#__PURE__*/React.createElement(ExecutiveOverview, {
     entries: entries
   }), sub === "ops" && /*#__PURE__*/React.createElement(OperationsFunnel, {
+    entries: entries
+  }), sub === "corp" && /*#__PURE__*/React.createElement(CorpBillingReport, {
     entries: entries
   }), sub === "unmatched" && /*#__PURE__*/React.createElement(UnmatchedInvoices, {
     entries: entries,
@@ -3131,8 +3965,8 @@ function PlacementsOnboardingReport({
   })), [placements]);
   const filtered = useMemo(() => rows.filter(p => {
     const matchesQuery = String(p["Organisation Name"] || "").toLowerCase().includes(query.toLowerCase());
-    const from = fromDate ? new Date(fromDate) : null;
-    const to = toDate ? new Date(toDate) : null;
+    const from = fromDate ? new Date(fromDate + "T00:00:00") : null;
+    const to = toDate ? new Date(toDate + "T23:59:59") : null;
     const d = p._sessionDate;
     if (from && (!d || d < from)) return false;
     if (to && (!d || d > to)) return false;
