@@ -1807,6 +1807,27 @@ function CorpBillingReport({
       }
     };
   }, [months, view]);
+  const [recvFilters, setRecvFilters] = useState({});
+  const [scFilters, setScFilters] = useState({});
+  function setRangeFilter(setter, key, min, max) {
+    setter(f => {
+      if (min === "" && max === "") {
+        const next = { ...f };
+        delete next[key];
+        return next;
+      }
+      return { ...f, [key]: { min, max } };
+    });
+  }
+  function inRange(filters, key, val) {
+    const f = filters[key];
+    if (!f) return true;
+    if (f.min !== "" && f.min != null && (val == null || val < Number(f.min))) return false;
+    if (f.max !== "" && f.max != null && (val == null || val > Number(f.max))) return false;
+    return true;
+  }
+  const recvFilterCount = Object.keys(recvFilters).length;
+  const scFilterCount = Object.keys(scFilters).length;
   const scorecard = useMemo(() => {
     const map = {};
     base.forEach(r => {
@@ -1836,6 +1857,20 @@ function CorpBillingReport({
     });
     return rows;
   }, [base]);
+  const scorecardFiltered = useMemo(() => scorecard.filter(r =>
+    inRange(scFilters, "count", r.agg.count) &&
+    inRange(scFilters, "billed", r.billed) &&
+    inRange(scFilters, "share", r.share) &&
+    inRange(scFilters, "collected", r.agg.collected) &&
+    inRange(scFilters, "unpaid", r.agg.unpaid) &&
+    inRange(scFilters, "pct", r.agg.pct) &&
+    inRange(scFilters, "lag", r.medLag) &&
+    inRange(scFilters, "oldest", r.oldest) &&
+    (!scFilters.last || (
+      (scFilters.last.from ? (r.last && r.last.getTime() >= scFilters.last.from) : true) &&
+      (scFilters.last.to ? (r.last && r.last.getTime() <= scFilters.last.to) : true)
+    ))
+  ), [scorecard, scFilters]);
   const scSorted = useMemo(() => {
     const dir = scSort.dir === "asc" ? 1 : -1;
     const val = r => {
@@ -1864,12 +1899,12 @@ function CorpBillingReport({
           return 0;
       }
     };
-    return scorecard.slice().sort((a, b) => {
+    return scorecardFiltered.slice().sort((a, b) => {
       const x = val(a);
       const y = val(b);
       return x < y ? -dir : x > y ? dir : 0;
     });
-  }, [scorecard, scSort]);
+  }, [scorecardFiltered, scSort]);
   const gaps = useMemo(() => {
     const cm = {};
     base.forEach(r => {
@@ -1959,6 +1994,16 @@ function CorpBillingReport({
     });
     return rows;
   }, [base, recvAge]);
+  const owedCorpsFiltered = useMemo(() => owedCorps.filter(r =>
+    inRange(recvFilters, "count", r.count) &&
+    inRange(recvFilters, "owed", r.owed) &&
+    inRange(recvFilters, "a0", r.byAge["0-30"]) &&
+    inRange(recvFilters, "a1", r.byAge["31-60"]) &&
+    inRange(recvFilters, "a2", r.byAge["61-90"]) &&
+    inRange(recvFilters, "a3", r.byAge["90+"]) &&
+    inRange(recvFilters, "oldest", r.oldest) &&
+    inRange(recvFilters, "share", r.share)
+  ), [owedCorps, recvFilters]);
   const recvSorted = useMemo(() => {
     const dir = recvSort.dir === "asc" ? 1 : -1;
     const val = r => {
@@ -1987,12 +2032,12 @@ function CorpBillingReport({
           return 0;
       }
     };
-    return owedCorps.slice().sort((a, b) => {
+    return owedCorpsFiltered.slice().sort((a, b) => {
       const x = val(a);
       const y = val(b);
       return x < y ? -dir : x > y ? dir : 0;
     });
-  }, [owedCorps, recvSort]);
+  }, [owedCorpsFiltered, recvSort]);
   const recvTotals = useMemo(() => {
     const t = {
       count: 0,
@@ -2006,7 +2051,7 @@ function CorpBillingReport({
         none: 0
       }
     };
-    owedCorps.forEach(r => {
+    owedCorpsFiltered.forEach(r => {
       t.count += r.count;
       t.owed += r.owed;
       Object.keys(t.byAge).forEach(k => {
@@ -2015,17 +2060,19 @@ function CorpBillingReport({
       if (r.oldest != null && (t.oldest == null || r.oldest > t.oldest)) t.oldest = r.oldest;
     });
     return t;
-  }, [owedCorps]);
+  }, [owedCorpsFiltered]);
   const scPager = usePagedRows(scSorted, 50);
   const gapPager = usePagedRows(gaps, 50);
   const recvPager = usePagedRows(recvSorted, 50);
-  const hasFilters = !!(query || fromDate || toDate || view === "month" && (bucketFilter || ageFilter));
+  const hasFilters = !!(query || fromDate || toDate || view === "month" && (bucketFilter || ageFilter) || view === "recv" && recvFilterCount > 0 || view === "scorecard" && scFilterCount > 0);
   function clearAll() {
     setQuery("");
     setFromDate("");
     setToDate("");
     setBucketFilter(null);
     setAgeFilter(null);
+    setRecvFilters({});
+    setScFilters({});
   }
   function toggleBucket(id) {
     setBucketFilter(bucketFilter === id ? null : id);
@@ -2107,6 +2154,57 @@ function CorpBillingReport({
   }, label, /*#__PURE__*/React.createElement("span", {
     className: "text-[9px] opacity-60"
   }, recvSort.key === key ? recvSort.dir === "asc" ? "▲" : "▼" : "↕")));
+  const recvRangeTh = (label, key) => /*#__PURE__*/React.createElement(NumberRangeTh, {
+    label: label,
+    sortActive: recvSort.key === key,
+    sortDir: recvSort.dir,
+    onSort: () => sortRecv(key),
+    min: recvFilters[key]?.min ?? "",
+    max: recvFilters[key]?.max ?? "",
+    onChange: (mn, mx) => {
+      setRangeFilter(setRecvFilters, key, mn, mx);
+      recvPager.setPage(1);
+    }
+  });
+  const scRangeTh = (label, key) => /*#__PURE__*/React.createElement(NumberRangeTh, {
+    label: label,
+    sortActive: scSort.key === key,
+    sortDir: scSort.dir,
+    onSort: () => sortBy(key),
+    min: scFilters[key]?.min ?? "",
+    max: scFilters[key]?.max ?? "",
+    onChange: (mn, mx) => {
+      setRangeFilter(setScFilters, key, mn, mx);
+      scPager.setPage(1);
+    }
+  });
+  const scDateTh = (label, key) => /*#__PURE__*/React.createElement(DateRangeTh, {
+    label: label,
+    sortActive: scSort.key === key,
+    sortDir: scSort.dir,
+    onSort: () => sortBy(key),
+    from: scFilters[key]?.fromStr ?? "",
+    to: scFilters[key]?.toStr ?? "",
+    onChange: (f, t) => {
+      setScFilters(cur => {
+        if (!f && !t) {
+          const next = { ...cur };
+          delete next[key];
+          return next;
+        }
+        return {
+          ...cur,
+          [key]: {
+            fromStr: f,
+            toStr: t,
+            from: f ? new Date(f + "T00:00:00").getTime() : null,
+            to: t ? new Date(t + "T23:59:59").getTime() : null
+          }
+        };
+      });
+      scPager.setPage(1);
+    }
+  });
   const viewBtn = (id, label) => /*#__PURE__*/React.createElement("button", {
     key: id,
     onClick: () => setView(id),
@@ -2304,19 +2402,27 @@ function CorpBillingReport({
     className: "flex flex-wrap items-baseline justify-between gap-2"
   }, /*#__PURE__*/React.createElement("h3", {
     className: "text-sm font-semibold text-slate-800"
-  }, "Owed by corp (", recvSorted.length, " corp", recvSorted.length === 1 ? "" : "s", ")"), recvAge && /*#__PURE__*/React.createElement("button", {
+  }, "Owed by corp (", recvSorted.length, " corp", recvSorted.length === 1 ? "" : "s", ")"), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-3"
+  }, recvFilterCount > 0 && /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      setRecvFilters({});
+      recvPager.setPage(1);
+    },
+    className: "text-xs font-medium text-blue-600 underline"
+  }, "Clear ", recvFilterCount, " column filter", recvFilterCount > 1 ? "s" : ""), recvAge && /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       setRecvAge(null);
       recvPager.setPage(1);
     },
     className: "text-xs font-medium text-blue-600 underline"
-  }, "Showing only ", (CBR_AGES.find(a => a.id === recvAge) || {}).label, " · clear age filter")), /*#__PURE__*/React.createElement("div", {
+  }, "Showing only ", (CBR_AGES.find(a => a.id === recvAge) || {}).label, " · clear age filter"))), /*#__PURE__*/React.createElement("div", {
     className: "overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm"
   }, /*#__PURE__*/React.createElement("table", {
     className: "w-full min-w-[1000px] text-sm"
   }, /*#__PURE__*/React.createElement("thead", {
     className: "bg-slate-50"
-  }, /*#__PURE__*/React.createElement("tr", null, recvSortTh("Corp", "corp"), recvSortTh("Unpaid PIs", "count"), recvSortTh("Owed", "owed"), recvSortTh("0-30", "a0"), recvSortTh("31-60", "a1"), recvSortTh("61-90", "a2"), recvSortTh("90+", "a3"), hasNoAge && recvSortTh("No PI date", "none"), recvSortTh("Oldest", "oldest"), recvSortTh("Share of owed", "share"))), /*#__PURE__*/React.createElement("tbody", null, recvPager.pageRows.map(r => {
+  }, /*#__PURE__*/React.createElement("tr", null, recvSortTh("Corp", "corp"), recvRangeTh("Unpaid PIs", "count"), recvRangeTh("Owed", "owed"), recvRangeTh("0-30", "a0"), recvRangeTh("31-60", "a1"), recvRangeTh("61-90", "a2"), recvRangeTh("90+", "a3"), hasNoAge && recvSortTh("No PI date", "none"), recvRangeTh("Oldest", "oldest"), recvRangeTh("Share of owed", "share"))), /*#__PURE__*/React.createElement("tbody", null, recvPager.pageRows.map(r => {
     const open = !!openRecv[r.name];
     return /*#__PURE__*/React.createElement(React.Fragment, {
       key: r.name
@@ -2599,15 +2705,23 @@ function CorpBillingReport({
     })))));
   })), view === "scorecard" && /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col gap-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap items-baseline justify-between gap-2"
   }, /*#__PURE__*/React.createElement("p", {
     className: "text-xs text-slate-400"
-  }, "Respects the search and date range above. Lag is the median days from PI date to TI date (real PIs only)."), /*#__PURE__*/React.createElement("div", {
+  }, "Respects the search and date range above. Lag is the median days from PI date to TI date (real PIs only)."), scFilterCount > 0 && /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      setScFilters({});
+      scPager.setPage(1);
+    },
+    className: "text-xs font-medium text-blue-600 underline"
+  }, "Clear ", scFilterCount, " column filter", scFilterCount > 1 ? "s" : "")), /*#__PURE__*/React.createElement("div", {
     className: "overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm"
   }, /*#__PURE__*/React.createElement("table", {
     className: "w-full min-w-[1100px] text-sm"
   }, /*#__PURE__*/React.createElement("thead", {
     className: "bg-slate-50"
-  }, /*#__PURE__*/React.createElement("tr", null, sortTh("Corp", "corp"), sortTh("Invoices", "count"), sortTh("Billed value", "billed"), sortTh("Share", "share"), sortTh("Collected", "collected"), sortTh("Unpaid", "unpaid"), sortTh("Collected %", "pct"), sortTh("PI→TI lag", "lag"), sortTh("Oldest unpaid", "oldest"), sortTh("Last invoice", "last"))), /*#__PURE__*/React.createElement("tbody", null, scPager.pageRows.map(r => /*#__PURE__*/React.createElement("tr", {
+  }, /*#__PURE__*/React.createElement("tr", null, sortTh("Corp", "corp"), scRangeTh("Invoices", "count"), scRangeTh("Billed value", "billed"), scRangeTh("Share", "share"), scRangeTh("Collected", "collected"), scRangeTh("Unpaid", "unpaid"), scRangeTh("Collected %", "pct"), scRangeTh("PI→TI lag", "lag"), scRangeTh("Oldest unpaid", "oldest"), scDateTh("Last invoice", "last"))), /*#__PURE__*/React.createElement("tbody", null, scPager.pageRows.map(r => /*#__PURE__*/React.createElement("tr", {
     key: r.name,
     className: "border-t border-slate-100 align-top transition-colors hover:bg-blue-50/40"
   }, /*#__PURE__*/React.createElement("td", {
